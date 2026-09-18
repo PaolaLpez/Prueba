@@ -98,6 +98,7 @@ test {
 }
 
 springBoot {
+    mainClass = 'com.proyecto.servicios.App'
     buildInfo {
     }
 }
