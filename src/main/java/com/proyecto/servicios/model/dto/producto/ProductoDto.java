@@ -22,4 +22,11 @@ public class ProductoDto {
     private BigDecimal precio;
     private String categoria;
     private Boolean disponible;
+    private Integer idServicio;
+    private Integer idProducto;
+    private Integer idCatTipoServicio;
+    private Integer tipoFront;
+    private Boolean hasDigitoVerificador;
+    private Boolean showAyuda;
+    private String tipoReferencia;
 }

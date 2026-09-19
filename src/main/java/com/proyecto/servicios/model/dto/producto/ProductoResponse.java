@@ -18,5 +18,5 @@ public class ProductoResponse {
 
     private Integer codigo;
     private String mensaje;
-    private List<ProductoDto> datos;
+    private Object datos;
 }

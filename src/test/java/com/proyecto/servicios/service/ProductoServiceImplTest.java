@@ -36,6 +36,12 @@ class ProductoServiceImplTest {
     @Mock
     private ProductoClient productoClient;
 
+    @Mock
+    private GestoPagoTokenService gestoPagoTokenService;
+
+    @Mock
+    private com.proyecto.servicios.client.GestoPagoAuthClient gestoPagoAuthClient;
+
     @InjectMocks
     private ProductoServiceImpl productoService;
 
@@ -44,9 +50,10 @@ class ProductoServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        // Asignación de propiedad tokenConfig usando ReflectionTestUtils
-        ReflectionTestUtils.setField(productoService, "tokenConfig", TEST_TOKEN);
-        
+        com.proyecto.servicios.entity.gestopago.GestoPagoToken tokenEntity = new com.proyecto.servicios.entity.gestopago.GestoPagoToken();
+        tokenEntity.setToken(TEST_TOKEN);
+        lenient().when(gestoPagoTokenService.obtenerTokenActivo(any(), any())).thenReturn(java.util.Optional.of(tokenEntity));
+
         dummyRequest = Request.create(
                 Request.HttpMethod.GET,
                 "/sistema/service/getProductList.do",
@@ -67,13 +74,15 @@ class ProductoServiceImplTest {
                 .disponible(true)
                 .build();
 
-        ProductoListResponse responseMock = ProductoListResponse.builder()
-                .codigo(0)
-                .mensaje("OK")
-                .productos(List.of(producto))
-                .build();
+        String responseMock = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<RESPONSE><MENSAJE><CODIGO>01</CODIGO>"
+                + "<TEXTO>Operacion realizada con exito</TEXTO></MENSAJE>"
+                + "<PRODUCTOS><producto servicio=\"Amazon\" producto=\"Amazon $100\" "
+                + "idServicio=\"71\" idProducto=\"200\" idCatTipoServicio=\"10\" "
+                + "tipoFront=\"1\" hasDigitoVerificador=\"false\" precio=\"100.0\" "
+                + "showAyuda=\"false\" tipoReferencia=\"a\"/></PRODUCTOS></RESPONSE>";
 
-        when(productoClient.obtenerProductos(eq("Bearer " + TEST_TOKEN))).thenReturn(responseMock);
+        when(productoClient.obtenerProductos(anyString())).thenReturn(responseMock);
 
         // Invocación del servicio
         ProductoResponse resultado = productoService.obtenerProductos();
@@ -81,9 +90,11 @@ class ProductoServiceImplTest {
         // Verificaciones
         assertNotNull(resultado);
         assertEquals(0, resultado.getCodigo());
-        assertEquals(1, resultado.getDatos().size());
-        assertEquals("PROD-001", resultado.getDatos().get(0).getId());
-        verify(productoClient, times(1)).obtenerProductos("Bearer " + TEST_TOKEN);
+        List<ProductoDto> productos = (List<ProductoDto>) resultado.getDatos();
+        assertEquals(1, productos.size());
+        assertEquals(200, productos.get(0).getIdProducto());
+        assertEquals("Amazon $100", productos.get(0).getNombre());
+        verify(productoClient, times(1)).obtenerProductos(anyString());
     }
 
     @Test
