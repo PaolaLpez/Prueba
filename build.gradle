@@ -6,6 +6,7 @@ plugins {
     id "org.owasp.dependencycheck" version "8.1.2"
     id 'com.github.ben-manes.versions' version '0.46.0'
     id 'java'
+    id 'eclipse'
 }
 
 group 'com.proyecto.servicio.empresa'

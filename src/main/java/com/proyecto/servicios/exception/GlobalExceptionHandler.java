@@ -86,9 +86,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(FeignException.class)
     public ResponseEntity<ApiErrorResponse> handleFeignException(FeignException ex) {
         HttpStatus status = HttpStatus.resolve(ex.status());
-        HttpStatus finalStatus = Optional.ofNullable(status).orElse(HttpStatus.BAD_GATEWAY);
+        HttpStatus finalStatus = (status != null && status.isError()) ? status : HttpStatus.BAD_GATEWAY;
 
-        log.error("Respuesta no exitosa del servicio externo. Código: {}", ex.status());
+        log.error("Respuesta no exitosa del servicio externo. Código HTTP original: {}", ex.status());
 
         ApiErrorResponse response = ApiErrorResponse.builder()
                 .status(finalStatus.value())
