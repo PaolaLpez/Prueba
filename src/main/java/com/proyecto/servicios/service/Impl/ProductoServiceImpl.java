@@ -1,13 +1,19 @@
 package com.proyecto.servicios.service.Impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proyecto.servicios.client.ProductoClient;
+import com.proyecto.servicios.entity.producto.Producto;
 import com.proyecto.servicios.exception.ExternalServiceException;
 import com.proyecto.servicios.model.dto.producto.ProductoResponse;
+import com.proyecto.servicios.repositorys.producto.ProductoRepository;
 import feign.FeignException;
 import feign.RetryableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -27,6 +33,12 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
     private final ProductoClient productoClient;
     private final com.proyecto.servicios.service.GestoPagoTokenService gestoPagoTokenService;
     private final com.proyecto.servicios.client.GestoPagoAuthClient gestoPagoAuthClient;
+    private final ProductoRepository productoRepository;
+    private final RedisTemplate<String, String> productosRedisTemplate;
+    private final ObjectMapper objectMapper;
+
+    @Value("${productos.cache.key:productos:actuales}")
+    private String cacheKey;
 
     @Value("${gestopago.auth.api-key:YSX1HpAFum4TpCecyFBxs4eIjAlbhKqK6fpcSQp8}")
     private String apiKey;
@@ -42,15 +54,50 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
 
     public ProductoServiceImpl(ProductoClient productoClient,
                                 com.proyecto.servicios.service.GestoPagoTokenService gestoPagoTokenService,
-                                com.proyecto.servicios.client.GestoPagoAuthClient gestoPagoAuthClient) {
+                                com.proyecto.servicios.client.GestoPagoAuthClient gestoPagoAuthClient,
+                                ProductoRepository productoRepository,
+                                RedisTemplate<String, String> productosRedisTemplate,
+                                ObjectMapper objectMapper) {
         this.productoClient = productoClient;
         this.gestoPagoTokenService = gestoPagoTokenService;
         this.gestoPagoAuthClient = gestoPagoAuthClient;
+        this.productoRepository = productoRepository;
+        this.productosRedisTemplate = productosRedisTemplate;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public ProductoResponse obtenerProductos() {
-        // Registro en logs del inicio de la invocación
+        List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos = leerCache();
+        if (productos == null) {
+            productos = leerBaseDeDatos();
+        }
+        if (productos != null && !productos.isEmpty()) {
+            guardarEnCache(productos);
+            return respuestaProductos(productos, "Lista de productos obtenida correctamente");
+        }
+
+        productos = consultarApi();
+        persistir(productos);
+        guardarEnCache(productos);
+        return respuestaProductos(productos, "Lista de productos obtenida correctamente");
+    }
+
+    @Scheduled(cron = "${productos.sincronizacion.cron:0 0 6 * * *}")
+    public void sincronizarProductos() {
+        log.info("Iniciando sincronización programada de productos");
+        try {
+            List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos = consultarApi();
+            persistir(productos);
+            limpiarCache();
+            guardarEnCache(productos);
+            log.info("Sincronización de productos finalizada. Productos actualizados: {}", productos.size());
+        } catch (Exception ex) {
+            log.error("No fue posible sincronizar productos: {}", ex.getMessage(), ex);
+        }
+    }
+
+    private List<com.proyecto.servicios.model.dto.producto.ProductoDto> consultarApi() {
         log.info("Iniciando consumo del servicio externo GET /sistema/service/getProductList.do");
 
         try {
@@ -77,14 +124,8 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
             String apiResponse = productoClient.obtenerProductos(authorizationHeader);
             List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos = parsearProductos(apiResponse);
 
-            // Registro en logs de finalización exitosa
             log.info("Consumo del servicio externo finalizado exitosamente");
-
-            return ProductoResponse.builder()
-                    .codigo(0)
-                    .mensaje("Lista de productos obtenida correctamente")
-                    .datos(productos)
-                    .build();
+                return productos;
 
         } catch (FeignException.Unauthorized | FeignException.Forbidden ex) {
             // Log de error de autenticación omitiendo tokens o credenciales sensibles
@@ -109,6 +150,92 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
             log.error("Error inesperado en la integración de productos: {}", ex.getMessage());
             throw new ExternalServiceException("Error interno al procesar la integración de productos", ex, HttpStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    private ProductoResponse respuestaProductos(List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos,
+                                                String mensaje) {
+        return ProductoResponse.builder().codigo(0).mensaje(mensaje).datos(productos).build();
+    }
+
+    private List<com.proyecto.servicios.model.dto.producto.ProductoDto> leerCache() {
+        if (productosRedisTemplate == null || objectMapper == null) {
+            return null;
+        }
+        try {
+            String json = productosRedisTemplate.opsForValue().get(cacheKey);
+            return json == null ? null : objectMapper.readValue(json, new TypeReference<>() { });
+        } catch (Exception ex) {
+            log.warn("Redis no disponible; se intentará consultar PostgreSQL: {}", ex.getMessage());
+            return null;
+        }
+    }
+
+    private void guardarEnCache(List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos) {
+        if (productosRedisTemplate == null || objectMapper == null) {
+            return;
+        }
+        try {
+            productosRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(productos));
+        } catch (Exception ex) {
+            log.warn("No fue posible guardar productos en Redis; PostgreSQL conserva la información: {}", ex.getMessage());
+        }
+    }
+
+    private void limpiarCache() {
+        if (productosRedisTemplate == null) {
+            return;
+        }
+        try {
+            productosRedisTemplate.delete(cacheKey);
+        } catch (Exception ex) {
+            log.warn("No fue posible limpiar Redis durante la sincronización: {}", ex.getMessage());
+        }
+    }
+
+    private List<com.proyecto.servicios.model.dto.producto.ProductoDto> leerBaseDeDatos() {
+        if (productoRepository == null) {
+            return null;
+        }
+        return productoRepository.findAll().stream().map(this::aDto).toList();
+    }
+
+    private void persistir(List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos) {
+        if (productoRepository == null) {
+            return;
+        }
+        List<Producto> entidades = productos.stream()
+                .filter(producto -> producto.getId() != null && !producto.getId().isBlank())
+                .map(this::aEntidad)
+                .toList();
+        productoRepository.deleteAllInBatch();
+        productoRepository.saveAll(entidades);
+    }
+
+    private Producto aEntidad(com.proyecto.servicios.model.dto.producto.ProductoDto dto) {
+        Producto entity = new Producto();
+        entity.setId(dto.getId());
+        entity.setNombre(dto.getNombre());
+        entity.setPrecio(dto.getPrecio());
+        entity.setCategoria(dto.getCategoria());
+        entity.setDisponible(dto.getDisponible());
+        entity.setIdServicio(dto.getIdServicio());
+        entity.setIdProducto(dto.getIdProducto());
+        entity.setIdCatTipoServicio(dto.getIdCatTipoServicio());
+        entity.setTipoFront(dto.getTipoFront());
+        entity.setHasDigitoVerificador(dto.getHasDigitoVerificador());
+        entity.setShowAyuda(dto.getShowAyuda());
+        entity.setTipoReferencia(dto.getTipoReferencia());
+        return entity;
+    }
+
+    private com.proyecto.servicios.model.dto.producto.ProductoDto aDto(Producto entity) {
+        return com.proyecto.servicios.model.dto.producto.ProductoDto.builder()
+            .id(entity.getId()).nombre(entity.getNombre())
+                .precio(entity.getPrecio()).categoria(entity.getCategoria()).disponible(entity.getDisponible())
+                .idServicio(entity.getIdServicio()).idProducto(entity.getIdProducto())
+                .idCatTipoServicio(entity.getIdCatTipoServicio()).tipoFront(entity.getTipoFront())
+                .hasDigitoVerificador(entity.getHasDigitoVerificador()).showAyuda(entity.getShowAyuda())
+                .tipoReferencia(entity.getTipoReferencia()).build();
     }
 
     private List<com.proyecto.servicios.model.dto.producto.ProductoDto> parsearProductos(String xml) {
