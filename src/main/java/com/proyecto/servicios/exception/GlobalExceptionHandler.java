@@ -52,6 +52,51 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatus()).body(response);
     }
 
+    // Captura excepciones de duplicación de datos de cliente (CURP, RFC, correo)
+    @ExceptionHandler(ClienteDuplicadoException.class)
+    public ResponseEntity<ApiErrorResponse> handleClienteDuplicadoException(ClienteDuplicadoException ex) {
+        log.warn("Registro de cliente duplicado rechazado: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(ex.getStatus().value())
+                .error("Cliente Duplicado")
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
+    // Captura excepciones de recurso no encontrado (Cliente, Cuenta, etc.)
+    @ExceptionHandler(RecursoNoEncontradoException.class)
+    public ResponseEntity<ApiErrorResponse> handleRecursoNoEncontradoException(RecursoNoEncontradoException ex) {
+        log.warn("Recurso no encontrado: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(ex.getStatus().value())
+                .error("Recurso No Encontrado")
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
+    // Captura excepciones de violación de reglas de negocio de clientes y cuentas
+    @ExceptionHandler(ReglaNegocioException.class)
+    public ResponseEntity<ApiErrorResponse> handleReglaNegocioException(ReglaNegocioException ex) {
+        log.warn("Violación de regla de negocio: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(ex.getStatus().value())
+                .error("Violación de Regla de Negocio")
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
     // Maneja declarativamente errores de autenticación (401/403) devueltos por el cliente Feign
     @ExceptionHandler({FeignException.Unauthorized.class, FeignException.Forbidden.class})
     public ResponseEntity<ApiErrorResponse> handleAuthenticationException(FeignException ex) {

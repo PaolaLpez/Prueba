@@ -73,14 +73,34 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
             productos = leerBaseDeDatos();
         }
         if (productos != null && !productos.isEmpty()) {
+            productos = normalizarYAcomodarProductos(productos);
             guardarEnCache(productos);
             return respuestaProductos(productos, "Lista de productos obtenida correctamente");
         }
 
         productos = consultarApi();
+        productos = normalizarYAcomodarProductos(productos);
         persistir(productos);
         guardarEnCache(productos);
         return respuestaProductos(productos, "Lista de productos obtenida correctamente");
+    }
+
+    private List<com.proyecto.servicios.model.dto.producto.ProductoDto> normalizarYAcomodarProductos(
+            List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos) {
+        if (productos == null) {
+            return java.util.Collections.emptyList();
+        }
+        return productos.stream()
+                .peek(p -> {
+                    if (p.getPrecio() == null) {
+                        p.setPrecio(java.math.BigDecimal.ZERO);
+                    }
+                    if (p.getCategoria() == null || p.getCategoria().trim().isEmpty()) {
+                        p.setCategoria("0");
+                    }
+                })
+                .sorted(java.util.Comparator.comparing(p -> p.getPrecio() != null ? p.getPrecio() : java.math.BigDecimal.ZERO))
+                .collect(java.util.stream.Collectors.toList());
     }
 
     @Scheduled(cron = "${productos.sincronizacion.cron:0 0 6 * * *}")
