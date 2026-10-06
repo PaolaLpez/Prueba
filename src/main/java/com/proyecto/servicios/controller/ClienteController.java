@@ -86,7 +86,14 @@ public class ClienteController {
     @PatchMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE, consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ClienteResponse> patchCliente(
             @PathVariable("id") Integer id,
-            @RequestBody ClienteActualizacionRequest request) {
+            @Valid @RequestBody ClienteActualizacionRequest request) {
         return new ResponseEntity<>(clienteService.actualizarCliente(id, request), HttpStatus.OK);
+    }
+
+    // 11. Baja lógica de cliente (desactiva el cliente y sus cuentas sin borrar físicamente los registros)
+    @DeleteMapping(value = "/{id}")
+    public ResponseEntity<Void> eliminarCliente(@PathVariable("id") Integer id) {
+        clienteService.bajaLogicaCliente(id);
+        return ResponseEntity.noContent().build();
     }
 }

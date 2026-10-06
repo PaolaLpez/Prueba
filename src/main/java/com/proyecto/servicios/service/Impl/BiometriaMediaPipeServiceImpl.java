@@ -10,6 +10,7 @@ import com.proyecto.servicios.repositorys.seguridad.DatosBiometricosRepository;
 import com.proyecto.servicios.service.BiometriaMediaPipeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Slf4j
+@Transactional
 public class BiometriaMediaPipeServiceImpl implements BiometriaMediaPipeService {
 
     private final DatosBiometricosRepository datosBiometricosRepository;

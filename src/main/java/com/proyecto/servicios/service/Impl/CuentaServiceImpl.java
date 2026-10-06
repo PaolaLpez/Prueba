@@ -7,6 +7,7 @@ import com.proyecto.servicios.repositorys.cuenta.CuentaRepository;
 import com.proyecto.servicios.service.CuentaService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Slf4j
+@Transactional(readOnly = true)
 public class CuentaServiceImpl implements CuentaService {
 
     private final CuentaRepository cuentaRepository;
