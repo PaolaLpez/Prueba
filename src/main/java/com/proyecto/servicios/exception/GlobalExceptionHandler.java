@@ -18,12 +18,16 @@ import java.util.Optional;
 @Slf4j
 public class GlobalExceptionHandler {
 
-    // Captura errores de validación de peticiones (@Valid) directamente sin usar bloques if
+    // Captura errores de validación de peticiones (@Valid) directamente reportando todos los campos inválidos
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
-        String detalleError = Optional.ofNullable(ex.getBindingResult().getFieldError())
+        String detalleError = ex.getBindingResult().getFieldErrors().stream()
                 .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .orElse("Parámetros de petición inválidos");
+                .collect(java.util.stream.Collectors.joining("; "));
+        
+        if (detalleError == null || detalleError.isBlank()) {
+            detalleError = "Parámetros de petición inválidos";
+        }
         
         log.warn("Petición inválida capturada: {}", detalleError);
         
@@ -31,6 +35,40 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST.value())
                 .error("Petición Inválida")
                 .mensaje(detalleError)
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    // Captura errores de formato JSON, tipos de datos incompatibles o fechas mal formateadas (por ejemplo con diagonales)
+    @ExceptionHandler({
+        org.springframework.http.converter.HttpMessageNotReadableException.class, 
+        java.time.format.DateTimeParseException.class,
+        com.fasterxml.jackson.databind.exc.InvalidFormatException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadableException(Exception ex) {
+        log.warn("Error al procesar formato JSON de la petición: {}", ex.getMessage());
+
+        String mensaje = "El formato de los datos en la petición es inválido";
+        String textoCompleto = (ex.getMessage() != null ? ex.getMessage() : "") + " "
+                + (ex.getCause() != null && ex.getCause().getMessage() != null ? ex.getCause().getMessage() : "");
+        
+        if (ex instanceof org.springframework.http.converter.HttpMessageNotReadableException readableEx && readableEx.getMostSpecificCause() != null && readableEx.getMostSpecificCause().getMessage() != null) {
+            textoCompleto += " " + readableEx.getMostSpecificCause().getMessage();
+        }
+
+        String textoLower = textoCompleto.toLowerCase();
+        if (textoLower.contains("localdate") || textoLower.contains("fechanacimiento") || textoLower.contains("datetimeparseexception") || textoLower.contains("date") || textoLower.contains("fecha")) {
+            mensaje = "El formato de la fecha es inválido. Debe ser estrictamente YYYY-MM-DD (ejemplo: 1995-05-15) sin diagonales ni otro formato";
+        } else if (textoLower.contains("bigdecimal") || textoLower.contains("ingresomensual") || textoLower.contains("saldoinicial") || textoLower.contains("numberformatexception") || textoLower.contains("numeric")) {
+            mensaje = "El campo numérico contiene un formato inválido. Solo se permiten números sin letras ni caracteres extraños";
+        }
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Formato Inválido")
+                .mensaje(mensaje)
                 .timestamp(LocalDateTime.now())
                 .build();
 
@@ -45,6 +83,80 @@ public class GlobalExceptionHandler {
         ApiErrorResponse response = ApiErrorResponse.builder()
                 .status(ex.getStatus().value())
                 .error(ex.getStatus().getReasonPhrase())
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
+    // Captura excepciones de duplicación de datos de cliente (CURP, RFC, correo)
+    @ExceptionHandler(ClienteDuplicadoException.class)
+    public ResponseEntity<ApiErrorResponse> handleClienteDuplicadoException(ClienteDuplicadoException ex) {
+        log.warn("Registro de cliente duplicado rechazado: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(ex.getStatus().value())
+                .error("Cliente Duplicado")
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
+    // Captura violaciones de unicidad a nivel de restricciones de base de datos
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiErrorResponse> handleDataIntegrityViolationException(org.springframework.dao.DataIntegrityViolationException ex) {
+        log.warn("Violación de restricción única en BD: {}", ex.getMessage());
+
+        String mensaje = "Ya existe un registro con estos datos únicos en el sistema";
+        if (ex.getMostSpecificCause() != null && ex.getMostSpecificCause().getMessage() != null) {
+            String causa = ex.getMostSpecificCause().getMessage().toLowerCase();
+            if (causa.contains("curp")) {
+                mensaje = "Ya existe un cliente registrado con esta CURP";
+            } else if (causa.contains("rfc")) {
+                mensaje = "Ya existe un cliente registrado con este RFC";
+            } else if (causa.contains("correo") || causa.contains("username")) {
+                mensaje = "Ya existe un cliente o usuario registrado con este correo electrónico";
+            } else if (causa.contains("numero_cuenta")) {
+                mensaje = "El número de cuenta generado ya existe";
+            }
+        }
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(HttpStatus.CONFLICT.value())
+                .error("Cliente Duplicado")
+                .mensaje(mensaje)
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    // Captura excepciones de recurso no encontrado (Cliente, Cuenta, etc.)
+    @ExceptionHandler(RecursoNoEncontradoException.class)
+    public ResponseEntity<ApiErrorResponse> handleRecursoNoEncontradoException(RecursoNoEncontradoException ex) {
+        log.warn("Recurso no encontrado: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(ex.getStatus().value())
+                .error("Recurso No Encontrado")
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
+    // Captura excepciones de violación de reglas de negocio de clientes y cuentas
+    @ExceptionHandler(ReglaNegocioException.class)
+    public ResponseEntity<ApiErrorResponse> handleReglaNegocioException(ReglaNegocioException ex) {
+        log.warn("Violación de regla de negocio: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(ex.getStatus().value())
+                .error("Violación de Regla de Negocio")
                 .mensaje(ex.getMessage())
                 .timestamp(LocalDateTime.now())
                 .build();
@@ -98,6 +210,25 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(finalStatus).body(response);
+    }
+
+    // Captura saturación temporal del pool de conexiones a la base de datos (HikariCP / PostgreSQL)
+    @ExceptionHandler({
+        org.springframework.dao.DataAccessResourceFailureException.class,
+        org.springframework.transaction.CannotCreateTransactionException.class,
+        org.springframework.jdbc.CannotGetJdbcConnectionException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleDatabaseSaturationException(Exception ex) {
+        log.warn("Saturación temporal de base de datos detectada bajo alta carga: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error("Servicio Temporalmente No Disponible")
+                .mensaje("El servidor está experimentando alta demanda en la base de datos. Por favor reintente su solicitud en unos momentos.")
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
     }
 
     // Captura de forma global cualquier otra excepción no controlada
