@@ -97,6 +97,9 @@ public class ClienteRegistroRequest {
     @NotNull(message = "El domicilio es obligatorio")
     private DomicilioDto domicilio;
 
-    @Size(min = 6, message = "La contraseña debe contener al menos 6 caracteres si se proporciona")
+    @Pattern(
+        regexp = "^$|^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^a-zA-Z0-9\\s])\\S{8,100}$",
+        message = "La contraseña debe ser segura: mínimo 8 caracteres, al menos una letra mayúscula, una minúscula, un número y un carácter especial (@, $, !, %, *, ?, &, #, etc.)"
+    )
     private String password;
 }
