@@ -62,6 +62,7 @@ public class ClienteServiceImpl implements ClienteService {
         validarSexo(request.getSexo());
         validarNacionalidad(request.getNacionalidad());
         validarEstadoCivil(request.getEstadoCivil());
+        validarPasswordSegura(request.getPassword());
 
         // 2. Regla de Negocio: Mayoría de edad (18 años o más)
         validarMayoriaDeEdad(request.getFechaNacimiento());
@@ -418,6 +419,28 @@ public class ClienteServiceImpl implements ClienteService {
         String sexoUpper = sexo.trim().toUpperCase();
         if (!sexoUpper.equals("MASCULINO") && !sexoUpper.equals("FEMENINO") && !sexoUpper.equals("OTRO")) {
             throw new ReglaNegocioException("El sexo debe ser exclusivamente MASCULINO, FEMENINO u OTRO");
+        }
+    }
+
+    private void validarPasswordSegura(String password) {
+        if (password == null || password.trim().isEmpty()) {
+            return;
+        }
+        String pass = password.trim();
+        if (pass.length() < 8) {
+            throw new ReglaNegocioException("La contraseña debe tener al menos 8 caracteres");
+        }
+        if (!pass.matches(".*[A-Z].*")) {
+            throw new ReglaNegocioException("La contraseña debe contener al menos una letra mayúscula");
+        }
+        if (!pass.matches(".*[a-z].*")) {
+            throw new ReglaNegocioException("La contraseña debe contener al menos una letra minúscula");
+        }
+        if (!pass.matches(".*\\d.*")) {
+            throw new ReglaNegocioException("La contraseña debe contener al menos un número");
+        }
+        if (!pass.matches(".*[^a-zA-Z0-9\\s].*")) {
+            throw new ReglaNegocioException("La contraseña debe contener al menos un carácter especial (@, $, !, %, *, ?, &, #, etc.)");
         }
     }
 
