@@ -10,6 +10,7 @@ import com.proyecto.servicios.exception.RecursoNoEncontradoException;
 import com.proyecto.servicios.exception.ReglaNegocioException;
 import com.proyecto.servicios.model.catalogo.EstadoCivil;
 import com.proyecto.servicios.model.dto.cliente.ClienteActualizacionRequest;
+import com.proyecto.servicios.model.dto.cliente.ClienteBusquedaRequest;
 import com.proyecto.servicios.model.dto.cliente.ClienteRegistroRequest;
 import com.proyecto.servicios.model.dto.cliente.ClienteResponse;
 import com.proyecto.servicios.model.dto.cliente.DomicilioDto;
@@ -19,8 +20,10 @@ import com.proyecto.servicios.repositorys.cuenta.CuentaRepository;
 import com.proyecto.servicios.repositorys.seguridad.UsuarioLoginRepository;
 import com.proyecto.servicios.service.ClienteService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.criteria.Predicate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -28,6 +31,7 @@ import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.stream.Collectors;
 
@@ -153,8 +157,9 @@ public class ClienteServiceImpl implements ClienteService {
     @Override
     public ClienteResponse consultarPorCorreo(String correo) {
         log.info("Consultando cliente por correo: {}", correo);
-        Cliente cliente = clienteRepository.findByCorreo(correo.toLowerCase())
-                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con correo: " + correo));
+        validarCorreoFormato(correo);
+        Cliente cliente = clienteRepository.findByCorreo(correo.trim().toLowerCase())
+                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con correo: " + correo.trim().toLowerCase()));
         return mapToResponse(cliente, cuentaRepository.findByClienteId(cliente.getId()));
     }
 
@@ -212,108 +217,197 @@ public class ClienteServiceImpl implements ClienteService {
     }
 
     @Override
+    public List<ClienteResponse> buscarClientesDinamico(ClienteBusquedaRequest request) {
+        log.info("Ejecutando búsqueda dinámica combinada de clientes con filtros: {}", request);
+        Specification<Cliente> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new java.util.ArrayList<>();
+
+            if (request != null) {
+                if (request.getId() != null && request.getId() > 0) {
+                    predicates.add(cb.equal(root.get("id"), request.getId()));
+                }
+                if (request.getCurp() != null && !request.getCurp().trim().isEmpty()) {
+                    predicates.add(cb.equal(cb.upper(root.get("curp")), request.getCurp().trim().toUpperCase()));
+                }
+                if (request.getRfc() != null && !request.getRfc().trim().isEmpty()) {
+                    predicates.add(cb.equal(cb.upper(root.get("rfc")), request.getRfc().trim().toUpperCase()));
+                }
+                if (request.getCorreo() != null && !request.getCorreo().trim().isEmpty()) {
+                    predicates.add(cb.equal(cb.lower(root.get("correo")), request.getCorreo().trim().toLowerCase()));
+                }
+                if (request.getNombre() != null && !request.getNombre().trim().isEmpty()) {
+                    predicates.add(cb.like(cb.lower(root.get("nombre")), "%" + request.getNombre().trim().toLowerCase() + "%"));
+                }
+                if (request.getApellidoPaterno() != null && !request.getApellidoPaterno().trim().isEmpty()) {
+                    predicates.add(cb.like(cb.lower(root.get("apellidoPaterno")), "%" + request.getApellidoPaterno().trim().toLowerCase() + "%"));
+                }
+                if (request.getApellidoMaterno() != null && !request.getApellidoMaterno().trim().isEmpty()) {
+                    predicates.add(cb.like(cb.lower(root.get("apellidoMaterno")), "%" + request.getApellidoMaterno().trim().toLowerCase() + "%"));
+                }
+                if (request.getTelefonoMovil() != null && !request.getTelefonoMovil().trim().isEmpty()) {
+                    predicates.add(cb.equal(root.get("telefonoMovil"), request.getTelefonoMovil().trim()));
+                }
+                if (request.getActivo() != null) {
+                    predicates.add(cb.equal(root.get("activo"), request.getActivo()));
+                }
+                if (request.getFechaInicio() != null && request.getFechaFin() != null) {
+                    if (request.getFechaInicio().isAfter(request.getFechaFin())) {
+                        throw new ReglaNegocioException("La fecha de inicio no puede ser posterior a la fecha de fin");
+                    }
+                    LocalDateTime inicioDt = request.getFechaInicio().atStartOfDay();
+                    LocalDateTime finDt = request.getFechaFin().atTime(23, 59, 59);
+                    predicates.add(cb.between(root.get("fechaCreacion"), inicioDt, finDt));
+                } else if (request.getFechaInicio() != null) {
+                    predicates.add(cb.greaterThanOrEqualTo(root.get("fechaCreacion"), request.getFechaInicio().atStartOfDay()));
+                } else if (request.getFechaFin() != null) {
+                    predicates.add(cb.lessThanOrEqualTo(root.get("fechaCreacion"), request.getFechaFin().atTime(23, 59, 59)));
+                }
+            }
+
+            return predicates.isEmpty() ? cb.conjunction() : cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return clienteRepository.findAll(spec).stream()
+                .map(c -> mapToResponse(c, cuentaRepository.findByClienteId(c.getId())))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public ClienteResponse actualizarCliente(ClienteActualizacionRequest request) {
+        if (request == null || request.getId() == null) {
+            throw new ReglaNegocioException("El ID del cliente es obligatorio para realizar la actualización");
+        }
+        return actualizarCliente(request.getId(), request);
+    }
+
+    @Override
     @Transactional
     public ClienteResponse actualizarCliente(Integer id, ClienteActualizacionRequest request) {
-        log.info("Actualizando información de cliente con ID: {}", id);
-        Cliente cliente = clienteRepository.findById(id)
-                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con ID: " + id));
-
-        // Validación y modificación: no permitir campos vacíos ni nombres de menos de 3 letras
-        if (request.getNombre() != null) {
-            validarTextoNoVacioYLongitud("nombre", request.getNombre(), 3);
-            cliente.setNombre(request.getNombre().trim());
-        }
-        if (request.getSegundoNombre() != null) {
-            if (!request.getSegundoNombre().trim().isEmpty() && request.getSegundoNombre().trim().length() < 3) {
-                throw new ReglaNegocioException("El segundo nombre debe tener al menos 3 caracteres si se proporciona");
+        log.info("Iniciando actualización de información para cliente con ID: {}", id);
+        try {
+            // 1. El RFC nunca debe venir nulo ni la CURP (validación estricta)
+            if (request.getCurp() == null || request.getCurp().trim().isEmpty()) {
+                throw new ReglaNegocioException("La CURP es obligatoria y nunca debe venir nula ni vacía");
             }
-            cliente.setSegundoNombre(request.getSegundoNombre().trim().isEmpty() ? null : request.getSegundoNombre().trim());
-        }
-        if (request.getApellidoPaterno() != null) {
-            validarTextoNoVacioYLongitud("apellido paterno", request.getApellidoPaterno(), 3);
-            cliente.setApellidoPaterno(request.getApellidoPaterno().trim());
-        }
-        if (request.getApellidoMaterno() != null) {
-            validarTextoNoVacioYLongitud("apellido materno", request.getApellidoMaterno(), 3);
-            cliente.setApellidoMaterno(request.getApellidoMaterno().trim());
-        }
-        if (request.getFechaNacimiento() != null) {
-            validarMayoriaDeEdad(request.getFechaNacimiento());
-            cliente.setFechaNacimiento(request.getFechaNacimiento());
-        }
-        if (request.getCurp() != null) {
+            if (request.getRfc() == null || request.getRfc().trim().isEmpty()) {
+                throw new ReglaNegocioException("El RFC es obligatorio y nunca debe venir nulo ni vacío");
+            }
+
+            // 2. Validar cliente: si existe manda la información, si no no
+            Optional<Cliente> existeCliente = clienteRepository.findById(id);
+            if (!existeCliente.isPresent()) {
+                log.warn("Cliente con ID {} no encontrado para actualizar", id);
+                throw new RecursoNoEncontradoException("Cliente no encontrado con ID: " + id);
+            }
+
+            // 3. Crea una entidad de cliente para acceder a esos datos
+            Cliente clienteActualiza = existeCliente.get();
+
+            // Validar formato y unicidad de CURP
             validarCurpFormato(request.getCurp());
             String curpUpper = request.getCurp().trim().toUpperCase();
-            if (!curpUpper.equalsIgnoreCase(cliente.getCurp())) {
+            if (!curpUpper.equalsIgnoreCase(clienteActualiza.getCurp())) {
                 if (clienteRepository.existsByCurp(curpUpper)) {
                     throw new ClienteDuplicadoException("La CURP ya está registrada por otro cliente: " + request.getCurp());
                 }
-                cliente.setCurp(curpUpper);
+                clienteActualiza.setCurp(curpUpper);
             }
-        }
-        if (request.getRfc() != null) {
+
+            // Validar formato y unicidad de RFC
             validarRfcFormato(request.getRfc());
             String rfcUpper = request.getRfc().trim().toUpperCase();
-            if (!rfcUpper.equalsIgnoreCase(cliente.getRfc())) {
+            if (!rfcUpper.equalsIgnoreCase(clienteActualiza.getRfc())) {
                 if (clienteRepository.existsByRfc(rfcUpper)) {
                     throw new ClienteDuplicadoException("El RFC ya está registrado por otro cliente: " + request.getRfc());
                 }
-                cliente.setRfc(rfcUpper);
+                clienteActualiza.setRfc(rfcUpper);
             }
-        }
-        if (request.getSexo() != null) {
-            validarSexo(request.getSexo());
-            cliente.setSexo(request.getSexo().trim().toUpperCase());
-        }
-        if (request.getNacionalidad() != null) {
-            validarNacionalidad(request.getNacionalidad());
-            cliente.setNacionalidad(request.getNacionalidad().trim().toUpperCase());
-        }
-        if (request.getEstadoCivil() != null) {
-            validarEstadoCivil(request.getEstadoCivil());
-            cliente.setEstadoCivil(EstadoCivil.normalizar(request.getEstadoCivil()));
-        }
-        if (request.getCorreo() != null) {
-            validarCorreoFormato(request.getCorreo());
-            String correoLower = request.getCorreo().trim().toLowerCase();
-            if (!correoLower.equalsIgnoreCase(cliente.getCorreo())) {
-                if (clienteRepository.existsByCorreo(correoLower)) {
-                    throw new ClienteDuplicadoException("El correo ya está registrado por otro cliente: " + request.getCorreo());
+
+            // Validación y actualización de los demás campos
+            if (request.getNombre() != null) {
+                validarTextoNoVacioYLongitud("nombre", request.getNombre(), 3);
+                clienteActualiza.setNombre(request.getNombre().trim());
+            }
+            if (request.getSegundoNombre() != null) {
+                if (!request.getSegundoNombre().trim().isEmpty() && request.getSegundoNombre().trim().length() < 3) {
+                    throw new ReglaNegocioException("El segundo nombre debe tener al menos 3 caracteres si se proporciona");
                 }
-                cliente.setCorreo(correoLower);
+                clienteActualiza.setSegundoNombre(request.getSegundoNombre().trim().isEmpty() ? null : request.getSegundoNombre().trim());
             }
-        }
-        if (request.getTelefonoMovil() != null) {
-            validarTelefonoFormato(request.getTelefonoMovil());
-            cliente.setTelefonoMovil(request.getTelefonoMovil().trim());
-        }
-        if (request.getTelefonoAlternativo() != null) {
-            if (!request.getTelefonoAlternativo().trim().isEmpty() && !request.getTelefonoAlternativo().trim().matches("^\\d{10}$")) {
-                throw new ReglaNegocioException("El teléfono alternativo debe contener exactamente 10 dígitos");
+            if (request.getApellidoPaterno() != null) {
+                validarTextoNoVacioYLongitud("apellido paterno", request.getApellidoPaterno(), 3);
+                clienteActualiza.setApellidoPaterno(request.getApellidoPaterno().trim());
             }
-            cliente.setTelefonoAlternativo(request.getTelefonoAlternativo().trim().isEmpty() ? null : request.getTelefonoAlternativo().trim());
-        }
-        if (request.getOcupacion() != null) cliente.setOcupacion(request.getOcupacion().trim());
-        if (request.getEmpresa() != null) cliente.setEmpresa(request.getEmpresa().trim());
-        if (request.getIngresoMensual() != null) {
-            if (request.getIngresoMensual().compareTo(BigDecimal.ZERO) <= 0) {
-                throw new ReglaNegocioException("El ingreso mensual debe ser mayor a cero");
+            if (request.getApellidoMaterno() != null) {
+                validarTextoNoVacioYLongitud("apellido materno", request.getApellidoMaterno(), 3);
+                clienteActualiza.setApellidoMaterno(request.getApellidoMaterno().trim());
             }
-            cliente.setIngresoMensual(request.getIngresoMensual());
-        }
+            if (request.getFechaNacimiento() != null) {
+                validarMayoriaDeEdad(request.getFechaNacimiento());
+                clienteActualiza.setFechaNacimiento(request.getFechaNacimiento());
+            }
+            if (request.getSexo() != null) {
+                validarSexo(request.getSexo());
+                clienteActualiza.setSexo(request.getSexo().trim().toUpperCase());
+            }
+            if (request.getNacionalidad() != null) {
+                validarNacionalidad(request.getNacionalidad());
+                clienteActualiza.setNacionalidad(request.getNacionalidad().trim().toUpperCase());
+            }
+            if (request.getEstadoCivil() != null) {
+                validarEstadoCivil(request.getEstadoCivil());
+                clienteActualiza.setEstadoCivil(EstadoCivil.normalizar(request.getEstadoCivil()));
+            }
+            if (request.getCorreo() != null) {
+                validarCorreoFormato(request.getCorreo());
+                String correoLower = request.getCorreo().trim().toLowerCase();
+                if (!correoLower.equalsIgnoreCase(clienteActualiza.getCorreo())) {
+                    if (clienteRepository.existsByCorreo(correoLower)) {
+                        throw new ClienteDuplicadoException("El correo ya está registrado por otro cliente: " + request.getCorreo());
+                    }
+                    clienteActualiza.setCorreo(correoLower);
+                }
+            }
+            if (request.getTelefonoMovil() != null) {
+                validarTelefonoFormato(request.getTelefonoMovil());
+                clienteActualiza.setTelefonoMovil(request.getTelefonoMovil().trim());
+            }
+            if (request.getTelefonoAlternativo() != null) {
+                if (!request.getTelefonoAlternativo().trim().isEmpty() && !request.getTelefonoAlternativo().trim().matches("^\\d{10}$")) {
+                    throw new ReglaNegocioException("El teléfono alternativo debe contener exactamente 10 dígitos");
+                }
+                clienteActualiza.setTelefonoAlternativo(request.getTelefonoAlternativo().trim().isEmpty() ? null : request.getTelefonoAlternativo().trim());
+            }
+            if (request.getOcupacion() != null) clienteActualiza.setOcupacion(request.getOcupacion().trim());
+            if (request.getEmpresa() != null) clienteActualiza.setEmpresa(request.getEmpresa().trim());
+            if (request.getIngresoMensual() != null) {
+                if (request.getIngresoMensual().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new ReglaNegocioException("El ingreso mensual debe ser mayor a cero");
+                }
+                clienteActualiza.setIngresoMensual(request.getIngresoMensual());
+            }
 
-        if (request.getDomicilio() != null) {
-            if (!cliente.getDomicilios().isEmpty()) {
-                Domicilio dom = cliente.getDomicilios().get(0);
-                actualizarDomicilio(dom, request.getDomicilio());
-            } else {
-                cliente.addDomicilio(mapToDomicilioEntity(request.getDomicilio()));
+            if (request.getDomicilio() != null) {
+                if (!clienteActualiza.getDomicilios().isEmpty()) {
+                    Domicilio dom = clienteActualiza.getDomicilios().get(0);
+                    actualizarDomicilio(dom, request.getDomicilio());
+                } else {
+                    clienteActualiza.addDomicilio(mapToDomicilioEntity(request.getDomicilio()));
+                }
             }
-        }
 
-        Cliente clienteActualizado = clienteRepository.save(cliente);
-        log.info("Cliente con ID {} actualizado correctamente", id);
-        return mapToResponse(clienteActualizado, cuentaRepository.findByClienteId(id));
+            Cliente clienteGuardado = clienteRepository.save(clienteActualiza);
+            log.info("Cliente con ID {} actualizado correctamente", id);
+            return mapToResponse(clienteGuardado, cuentaRepository.findByClienteId(id));
+
+        } catch (RecursoNoEncontradoException | ReglaNegocioException | ClienteDuplicadoException e) {
+            log.error("Error al actualizar cliente con ID {}: {}", id, e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Error inesperado al actualizar cliente con ID {}: ", id, e);
+            throw new ReglaNegocioException("Error al actualizar cliente: " + e.getMessage());
+        }
     }
 
     @Override

@@ -18,28 +18,14 @@ import java.util.Optional;
 @Slf4j
 public class GlobalExceptionHandler {
 
-    // Captura errores de validación de peticiones (@Valid) directamente reportando todos los campos inválidos
+    // La validación de peticiones (@Valid) que lanzan MethodArgumentNotValidException 
+    // es gestionada por com.proyecto.servicio.empresa.controller.ValidadorCampos
+    /*
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
-        String detalleError = ex.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .collect(java.util.stream.Collectors.joining("; "));
-        
-        if (detalleError == null || detalleError.isBlank()) {
-            detalleError = "Parámetros de petición inválidos";
-        }
-        
-        log.warn("Petición inválida capturada: {}", detalleError);
-        
-        ApiErrorResponse response = ApiErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error("Petición Inválida")
-                .mensaje(detalleError)
-                .timestamp(LocalDateTime.now())
-                .build();
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        ...
     }
+    */
 
     // Captura errores de formato JSON, tipos de datos incompatibles o fechas mal formateadas (por ejemplo con diagonales)
     @ExceptionHandler({

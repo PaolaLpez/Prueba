@@ -14,7 +14,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.proyecto.servicios", "com.proyecto.servicio.empresa"})
 @EnableCaching
 @EnableScheduling
 @EnableFeignClients
