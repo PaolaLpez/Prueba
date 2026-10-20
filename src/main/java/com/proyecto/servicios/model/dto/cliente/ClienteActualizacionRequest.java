@@ -18,6 +18,9 @@ import java.time.LocalDate;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ClienteActualizacionRequest {
 
+    @NotNull(message = "El ID del cliente es obligatorio para realizar la actualización")
+    private Integer id;
+
     @Pattern(regexp = "^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,50}$", message = "El nombre debe contener solo letras y tener entre 3 y 50 caracteres (mínimo 3 letras)")
     private String nombre;
 
@@ -34,10 +37,14 @@ public class ClienteActualizacionRequest {
     @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate fechaNacimiento;
 
+    @NotNull(message = "La CURP nunca debe ser nula")
+    @NotBlank(message = "La CURP es obligatoria y no puede estar vacía")
     @Size(min = 18, max = 18, message = "La CURP debe tener exactamente 18 caracteres")
     @Pattern(regexp = "(?i)^[A-Z]{4}\\d{6}[HM][A-Z]{5}[0-9A-Z]\\d$", message = "El formato de la CURP es inválido (debe contener 18 caracteres en formato oficial)")
     private String curp;
 
+    @NotNull(message = "El RFC nunca debe ser nulo")
+    @NotBlank(message = "El RFC es obligatorio y no puede estar vacío")
     @Size(min = 12, max = 13, message = "El RFC debe tener 12 o 13 caracteres")
     @Pattern(regexp = "(?i)^[A-ZÑ&]{3,4}\\d{6}[A-V1-9][A-Z1-9][0-9A]$", message = "El formato del RFC es inválido (debe contener 12 o 13 caracteres en formato oficial)")
     private String rfc;
@@ -76,4 +83,10 @@ public class ClienteActualizacionRequest {
 
     @Valid
     private DomicilioDto domicilio;
+
+    @Pattern(
+        regexp = "^$|^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^a-zA-Z0-9\\s])\\S{8,100}$",
+        message = "La nueva contraseña debe ser segura: mínimo 8 caracteres, al menos una letra mayúscula, una minúscula, un número y un carácter especial (@, $, !, %, *, ?, &, #, etc.)"
+    )
+    private String password;
 }

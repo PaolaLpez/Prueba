@@ -1,6 +1,7 @@
 package com.proyecto.servicios.service;
 
 import com.proyecto.servicios.model.dto.cliente.ClienteActualizacionRequest;
+import com.proyecto.servicios.model.dto.cliente.ClienteBusquedaRequest;
 import com.proyecto.servicios.model.dto.cliente.ClienteRegistroRequest;
 import com.proyecto.servicios.model.dto.cliente.ClienteResponse;
 
@@ -18,6 +19,8 @@ public interface ClienteService {
     ClienteResponse consultarPorNumeroCuenta(String numeroCuenta);
     List<ClienteResponse> consultarClientesActivos();
     List<ClienteResponse> consultarClientesPorRangoFechas(LocalDate inicio, LocalDate fin);
+    List<ClienteResponse> buscarClientesDinamico(ClienteBusquedaRequest request);
     ClienteResponse actualizarCliente(Integer id, ClienteActualizacionRequest request);
+    ClienteResponse actualizarCliente(ClienteActualizacionRequest request);
     void bajaLogicaCliente(Integer id);
 }
