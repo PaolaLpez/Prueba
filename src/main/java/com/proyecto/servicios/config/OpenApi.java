@@ -40,7 +40,7 @@ public class OpenApi {
                                 .name("Uso Interno Empresarial")
                                 .url("https://gestopago.portalventas.net")))
                 .servers(List.of(
-                        new Server().url("http://localhost:8080").description("Entorno Local de Pruebas")
+                        new Server().url("/").description("Servidor Actual (Local y Render)")
                 ))
                 .components(new Components()
                         .addSecuritySchemes("BearerAuth", new SecurityScheme()

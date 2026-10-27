@@ -63,6 +63,47 @@ public class App implements CommandLineRunner {
         } catch (Exception ex) {
             log.warn("No fue posible registrar el producto ID 1: {}", ex.getMessage());
         }
+
+        try {
+            com.proyecto.servicios.repositorys.cuenta.CuentaRepository cuentaRepo = context.getBean(com.proyecto.servicios.repositorys.cuenta.CuentaRepository.class);
+            com.proyecto.servicios.repositorys.cliente.ClienteRepository clienteRepo = context.getBean(com.proyecto.servicios.repositorys.cliente.ClienteRepository.class);
+            com.proyecto.servicios.repositorys.cuenta.SaldoRepository saldoRepo = context.getBean(com.proyecto.servicios.repositorys.cuenta.SaldoRepository.class);
+
+            if (cuentaRepo.findByNumeroCuenta("5730094736").isEmpty()) {
+                com.proyecto.servicios.entity.cliente.Cliente cli = clienteRepo.findByCorreo("isapaola188@gmail.com")
+                        .orElseGet(() -> {
+                            com.proyecto.servicios.entity.cliente.Cliente nuevo = new com.proyecto.servicios.entity.cliente.Cliente();
+                            nuevo.setNombre("Paola");
+                            nuevo.setApellidoPaterno("Lopez");
+                            nuevo.setApellidoMaterno("Garcia");
+                            nuevo.setCurp("LOGP950520MDFR01");
+                            nuevo.setRfc("LOGP9505201A0");
+                            nuevo.setCorreo("isapaola188@gmail.com");
+                            nuevo.setTelefonoMovil("5512345678");
+                            nuevo.setFechaNacimiento(java.time.LocalDate.of(1995, 5, 20));
+                            nuevo.setIngresoMensual(new BigDecimal("25000.00"));
+                            nuevo.setActivo(true);
+                            return clienteRepo.save(nuevo);
+                        });
+
+                com.proyecto.servicios.entity.cuenta.Cuenta cta = new com.proyecto.servicios.entity.cuenta.Cuenta();
+                cta.setCliente(cli);
+                cta.setNumeroCuenta("5730094736");
+                cta.setEstatus("ACTIVA");
+                cta = cuentaRepo.save(cta);
+
+                com.proyecto.servicios.entity.cuenta.Saldo sld = new com.proyecto.servicios.entity.cuenta.Saldo();
+                sld.setCuenta(cta);
+                sld.setSaldoDisponible(new BigDecimal("2500.00"));
+                sld.setSaldoRetenido(BigDecimal.ZERO);
+                sld.setSaldoTotal(new BigDecimal("2500.00"));
+                saldoRepo.save(sld);
+
+                log.info("Cliente Paola López (ID {}), Cuenta 5730094736 y Saldo ($2,500.00) creados exitosamente para pruebas.", cli.getId());
+            }
+        } catch (Exception ex) {
+            log.warn("No fue posible inicializar la cuenta de prueba 5730094736: {}", ex.getMessage());
+        }
     }
 
     private static void displayInfo(BuildProperties buildProperties) {
