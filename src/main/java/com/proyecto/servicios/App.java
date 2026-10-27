@@ -96,7 +96,6 @@ public class App implements CommandLineRunner {
                 sld.setCuenta(cta);
                 sld.setSaldoDisponible(new BigDecimal("2500.00"));
                 sld.setSaldoRetenido(BigDecimal.ZERO);
-                sld.setSaldoTotal(new BigDecimal("2500.00"));
                 saldoRepo.save(sld);
 
                 log.info("Cliente Paola López (ID {}), Cuenta 5730094736 y Saldo ($2,500.00) creados exitosamente para pruebas.", cli.getId());
