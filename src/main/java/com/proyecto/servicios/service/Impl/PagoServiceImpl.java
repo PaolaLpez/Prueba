@@ -342,10 +342,8 @@ public class PagoServiceImpl implements PagoService {
     }
 
     private Cliente obtenerYValidarCliente(Integer idCliente) {
-        if (idCliente == null) {
-            idCliente = 3;
-        }
-        Optional<Cliente> clienteOpt = clienteRepository.findById(idCliente);
+        final Integer idTarget = (idCliente != null) ? idCliente : 3;
+        Optional<Cliente> clienteOpt = clienteRepository.findById(idTarget);
         if (clienteOpt.isEmpty()) {
             // Fallback de resiliencia: si el ID no coincide exactamente en la nube, buscar primer cliente activo
             clienteOpt = clienteRepository.findAll().stream()
@@ -354,10 +352,10 @@ public class PagoServiceImpl implements PagoService {
         }
 
         Cliente cliente = clienteOpt
-                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con ID: " + idCliente));
+                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con ID: " + idTarget));
 
         if (cliente.getActivo() != null && !cliente.getActivo()) {
-            throw new ReglaNegocioException("El cliente con ID " + idCliente + " no se encuentra activo");
+            throw new ReglaNegocioException("El cliente con ID " + idTarget + " no se encuentra activo");
         }
         return cliente;
     }
