@@ -61,6 +61,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    // Captura argumentos inválidos o parámetros con valores no permitidos
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex) {
+        log.warn("Parámetro inválido recibido: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Parámetro Inválido")
+                .mensaje(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
     // Captura excepciones personalizadas emitidas por la capa de integración de servicios
     @ExceptionHandler(ExternalServiceException.class)
     public ResponseEntity<ApiErrorResponse> handleExternalServiceException(ExternalServiceException ex) {

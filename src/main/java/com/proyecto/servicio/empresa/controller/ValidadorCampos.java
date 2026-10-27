@@ -22,14 +22,16 @@ public class ValidadorCampos {
      * @return
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<GenericResponse> dtoValidation(Errors errors) {
+    public ResponseEntity<GenericResponse> dtoValidation(MethodArgumentNotValidException ex) {
         GenericResponse genericResponse = new GenericResponse();
         Map<String, String> listError = new HashMap<>();
-        for (FieldError fieldError : errors.getFieldErrors()) {
-            listError.put(fieldError.getField(), fieldError.getDefaultMessage());
+        if (ex.getBindingResult() != null) {
+            for (FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
+                listError.put(fieldError.getField(), fieldError.getDefaultMessage());
+            }
         }
         genericResponse.setCodigo(1);
-        genericResponse.setMensaje("Datos no validos" + listError);
+        genericResponse.setMensaje("Datos no válidos: " + listError);
         return new ResponseEntity<>(genericResponse, HttpStatus.BAD_REQUEST);
     }
 }
