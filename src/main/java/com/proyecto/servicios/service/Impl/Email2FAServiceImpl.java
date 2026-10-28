@@ -151,7 +151,7 @@ public class Email2FAServiceImpl implements Email2FAService {
                                          String numeroCuenta, String nombreProducto, String transaccionId, Map<String, Object> ticket) {
         boolean enviado = false;
 
-        // 1. Envío directo garantizado e instantáneo por Gmail SMTP oficial
+        // 1. Envío directo garantizado e instantáneo por Gmail SMTP oficial (Llega en 1 segundo directo)
         if (mailSender != null && correoCliente != null && !correoCliente.isBlank()) {
             try {
                 MimeMessage mimeMessage = mailSender.createMimeMessage();
@@ -170,16 +170,19 @@ public class Email2FAServiceImpl implements Email2FAService {
                 log.info(">> [COMPROBANTE REAL ENTREGADO POR GMAIL SMTP] Comprobante entregado a la bandeja de: {}", correoCliente);
                 enviado = true;
             } catch (Exception ex) {
-                log.warn(">> [FALLO COMPROBANTE GMAIL SMTP]: {}", ex.getMessage());
+                log.warn(">> [GMAIL SMTP LOCAL COMPROBANTE]: {}", ex.getMessage());
             }
         }
 
-        // 2. Ejecutar también Brevo API para cumplir con el ecosistema Brevo
-        if (brevoEmailService != null) {
+        // 2. Envío a través de EmailJS / Brevo API (Garantizado para Render / nube sin bloqueo de puertos)
+        if (brevoEmailService != null && correoCliente != null && !correoCliente.isBlank()) {
             try {
-                brevoEmailService.enviarComprobantePago(correoCliente, nombreCliente, referencia, monto, numeroCuenta, nombreProducto, transaccionId, ticket);
+                boolean enviadoServicio = brevoEmailService.enviarComprobantePago(correoCliente.trim(), nombreCliente, referencia, monto, numeroCuenta, nombreProducto, transaccionId, ticket);
+                if (enviadoServicio) {
+                    enviado = true;
+                }
             } catch (Exception ex) {
-                log.warn("Fallo al enviar comprobante por Brevo API: {}", ex.getMessage());
+                log.warn("Fallo al enviar comprobante por Email Service: {}", ex.getMessage());
             }
         }
 
@@ -192,7 +195,7 @@ public class Email2FAServiceImpl implements Email2FAService {
                 codigo, destinatario, monto, referencia);
         log.info("=================================================================================");
 
-        boolean enviadoPorGmail = false;
+        boolean enviado = false;
 
         // 1. Envío DIRECTO e INSTANTÁNEO por Gmail SMTP oficial (Llega en 1 segundo directo a la bandeja)
         if (mailSender != null && destinatario != null && !destinatario.isBlank()) {
@@ -211,23 +214,25 @@ public class Email2FAServiceImpl implements Email2FAService {
                 helper.setText(htmlContent, true);
                 mailSender.send(mimeMessage);
                 log.info(">> [CORREO REAL ENTREGADO POR GMAIL SMTP DIRECTO] Código 2FA entregado a la bandeja de: {}", destinatario);
-                enviadoPorGmail = true;
+                enviado = true;
             } catch (Exception ex) {
                 log.warn(">> [GMAIL SMTP EXCEPCIÓN]: {}", ex.getMessage());
             }
         }
 
-        // 2. Envío a través de Brevo API para mantener la trazabilidad en la plataforma Brevo
+        // 2. Envío a través de EmailJS / Brevo API (Garantizado para la nube / Render vía HTTPS 443)
         if (brevoEmailService != null && destinatario != null && !destinatario.isBlank()) {
             try {
-                brevoEmailService.enviarCodigo2FA(destinatario, nombre, codigo, monto, referencia);
-                log.info(">> [BREVO API EJECUTADO] Transacción registrada en la plataforma de Brevo.");
+                boolean enviadoApi = brevoEmailService.enviarCodigo2FA(destinatario.trim(), nombre, codigo, monto, referencia);
+                if (enviadoApi) {
+                    enviado = true;
+                }
             } catch (Exception ex) {
-                log.warn(">> [BREVO API EXCEPCIÓN]: {}", ex.getMessage());
+                log.warn(">> [EMAIL SERVICE EXCEPCIÓN]: {}", ex.getMessage());
             }
         }
 
-        if (!enviadoPorGmail) {
+        if (!enviado) {
             log.info(">> [CÓDIGO 2FA DISPONIBLE EN CONSOLA]: [{}] para [{}]", codigo, destinatario);
         }
     }

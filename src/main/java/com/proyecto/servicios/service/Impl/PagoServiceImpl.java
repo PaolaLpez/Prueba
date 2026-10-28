@@ -110,22 +110,27 @@ public class PagoServiceImpl implements PagoService {
 
     @Override
     public PagoConfirmacionResponse procesarPago(PagoRequest request) {
-        log.info("Iniciando procesamiento de pago: cuenta={}, clienteId={}, producto={}, monto={}, ref={}",
-                request.getNumeroCuenta(), request.getIdCliente(), request.getIdProducto(), request.getMonto(), request.getReferencia());
+        log.info("Iniciando procesamiento de pago: correo={}, cuenta={}, clienteId={}, producto={}, monto={}, ref={}",
+                request.getCorreo(), request.getNumeroCuenta(), request.getIdCliente(),
+                request.getNombreProducto() != null ? request.getNombreProducto() : request.getIdProducto(),
+                request.getMonto(), request.getReferencia());
 
-        // PASO 1: Validar si el cliente existe y está activo
-        Cliente cliente = obtenerYValidarCliente(request.getIdCliente());
+        // PASO 1: Resolver y validar cliente por correo, ID o cuenta bancaria
+        Cliente cliente = resolverYValidarCliente(request);
 
-        // PASO 2: Validar cuenta bancaria asociada y pertenencia al cliente
-        Cuenta cuenta = obtenerYValidarCuenta(request.getNumeroCuenta(), cliente);
+        // PASO 2: Resolver y validar cuenta bancaria asociada y pertenencia al cliente
+        Cuenta cuenta = resolverYValidarCuenta(request, cliente);
 
-        // PASO 3: Validar catálogo de productos, disponibilidad y restricciones de monto
-        Producto producto = validarProductoYMontos(request.getIdServicio(), request.getIdProducto(), request.getMonto());
+        // PASO 3: Resolver catálogo de productos, disponibilidad, servicio y montos
+        Producto producto = resolverYValidarProducto(request);
 
-        // PASO 4: Validar referencia de comprobante y prevención de duplicados (Idempotencia)
-        validarReferenciaEIdempotencia(request.getReferencia());
+        // PASO 4: Auto-generar o validar referencia de comprobante (Idempotencia)
+        resolverYValidarReferencia(request, cliente);
 
-        // PASO 5: Validar saldo disponible inicial
+        // PASO 5: Auto-completar teléfono si no viene en la petición
+        resolverTelefono(request, cliente);
+
+        // PASO 6: Validar saldo disponible inicial
         Saldo saldo = validarSaldoDisponible(cuenta, request.getMonto());
 
         // Determinar correo destino: si el usuario especifica un correo en la petición se usa ese, sino el del cliente registrado
@@ -133,7 +138,7 @@ public class PagoServiceImpl implements PagoService {
                 ? request.getCorreo().trim()
                 : cliente.getCorreo();
 
-        // PASO 6: Doble factor de autenticación (2FA) por correo electrónico (Brevo API)
+        // PASO 7: Doble factor de autenticación (2FA) por correo electrónico (EmailJS / Brevo API)
         String codigo2FA = request.getDobleAutenticacion();
         if (codigo2FA == null || codigo2FA.trim().isEmpty() || "SOLICITAR".equalsIgnoreCase(codigo2FA.trim())) {
             // Fase 1: El usuario solicita pagar -> se genera y envía el código al correo sin descontar saldo todavía
@@ -165,6 +170,7 @@ public class PagoServiceImpl implements PagoService {
                             .saldoAnterior(saldo.getSaldoDisponible())
                             .saldoDisponibleActual(saldo.getSaldoDisponible())
                             .referencia(request.getReferencia())
+                            .telefono(request.getTelefono())
                             .estadoTransaccion("PENDIENTE_CODIGO_2FA")
                             .build())
                     .build();
@@ -173,7 +179,7 @@ public class PagoServiceImpl implements PagoService {
         // Fase 2: El usuario ya ingresó el código recibido en su correo -> se valida
         boolean esValido2FA = email2FAService.validarCodigo2FA(cliente.getId(), cuenta.getNumeroCuenta(), codigo2FA);
         if (!esValido2FA) {
-            throw new ReglaNegocioException("El código de doble autenticación (2FA) es incorrecto o ha expirado. Por favor ingresa el código recibido en tu correo electrónico (" + cliente.getCorreo() + ").");
+            throw new ReglaNegocioException("El código de doble autenticación (2FA) es incorrecto o ha expirado. Por favor ingresa el código recibido en tu correo electrónico (" + correoDestino + ").");
         }
 
         // PASO 7: Preparar datos de transacción
@@ -341,101 +347,215 @@ public class PagoServiceImpl implements PagoService {
         throw new ReglaNegocioException("La transacción fue rechazada por el proveedor Gestopago: " + motivo + ". No se realizó ningún cargo.");
     }
 
-    private Cliente obtenerYValidarCliente(Integer idCliente) {
-        final Integer idTarget = (idCliente != null) ? idCliente : 3;
-        Optional<Cliente> clienteOpt = clienteRepository.findById(idTarget);
-        if (clienteOpt.isEmpty()) {
-            // Fallback de resiliencia: si el ID no coincide exactamente en la nube, buscar primer cliente activo
-            clienteOpt = clienteRepository.findAll().stream()
-                    .filter(c -> c.getActivo() == null || c.getActivo())
-                    .findFirst();
+    private Cliente resolverYValidarCliente(PagoRequest request) {
+        String correoReq = request.getCorreo();
+        Integer idClienteReq = request.getIdCliente();
+        String numeroCuentaReq = request.getNumeroCuenta();
+
+        Optional<Cliente> clienteOpt = Optional.empty();
+
+        // 1. Prioridad: Búsqueda por correo si se proporciona en la petición
+        if (correoReq != null && !correoReq.trim().isBlank()) {
+            String correoLimpio = correoReq.trim();
+            clienteOpt = clienteRepository.findByCorreoIgnoreCase(correoLimpio);
+            if (clienteOpt.isEmpty()) {
+                clienteOpt = clienteRepository.findByCorreo(correoLimpio);
+            }
+            if (clienteOpt.isEmpty()) {
+                throw new RecursoNoEncontradoException(
+                        "No se encontró ninguna cuenta registrada con el correo: " + correoLimpio);
+            }
+        }
+        // 2. Búsqueda por ID de cliente si se provee
+        else if (idClienteReq != null) {
+            clienteOpt = clienteRepository.findById(idClienteReq);
+            if (clienteOpt.isEmpty()) {
+                throw new RecursoNoEncontradoException("Cliente no encontrado con ID: " + idClienteReq);
+            }
+        }
+        // 3. Búsqueda por número de cuenta si se provee
+        else if (numeroCuentaReq != null && !numeroCuentaReq.trim().isBlank()) {
+            Optional<Cuenta> ctaOpt = cuentaRepository.findByNumeroCuenta(numeroCuentaReq.trim());
+            if (ctaOpt.isPresent() && ctaOpt.get().getCliente() != null) {
+                clienteOpt = Optional.of(ctaOpt.get().getCliente());
+            } else {
+                throw new RecursoNoEncontradoException(
+                        "No se encontró ninguna cuenta bancaria registrada con número: " + numeroCuentaReq.trim());
+            }
+        }
+        // 4. Si no se especificó identificador, intentar con el cliente de pruebas 3
+        else {
+            clienteOpt = clienteRepository.findById(3);
+            if (clienteOpt.isEmpty()) {
+                throw new ReglaNegocioException(
+                        "Debe proporcionar al menos el correo electrónico registrado del cliente, el ID de cliente o el número de cuenta");
+            }
         }
 
-        Cliente cliente = clienteOpt
-                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con ID: " + idTarget));
+        Cliente cliente = clienteOpt.get();
 
         if (cliente.getActivo() != null && !cliente.getActivo()) {
-            throw new ReglaNegocioException("El cliente con ID " + idTarget + " no se encuentra activo");
+            throw new ReglaNegocioException("La cuenta del cliente " + cliente.getNombre() + " " + cliente.getApellidoPaterno() + " se encuentra inactiva");
         }
+
+        request.setIdCliente(cliente.getId());
+        if (request.getCorreo() == null || request.getCorreo().isBlank()) {
+            request.setCorreo(cliente.getCorreo());
+        }
+
         return cliente;
     }
 
-    private Cuenta obtenerYValidarCuenta(String numeroCuenta, Cliente cliente) {
+    private Cuenta resolverYValidarCuenta(PagoRequest request, Cliente cliente) {
+        String numCuentaReq = request.getNumeroCuenta();
         Optional<Cuenta> cuentaOpt = Optional.empty();
-        if (numeroCuenta != null && !numeroCuenta.isBlank()) {
-            cuentaOpt = cuentaRepository.findByNumeroCuenta(numeroCuenta.trim());
-        }
 
-        // Si no se encuentra por el número exacto, buscar cuenta activa asociada o cualquier cuenta activa
-        if (cuentaOpt.isEmpty()) {
-            List<Cuenta> cuentasCliente = cuentaRepository.findByClienteId(cliente.getId());
-            cuentaOpt = cuentasCliente.stream()
+        if (numCuentaReq != null && !numCuentaReq.trim().isBlank()) {
+            cuentaOpt = cuentaRepository.findByNumeroCuenta(numCuentaReq.trim());
+            if (cuentaOpt.isEmpty()) {
+                throw new RecursoNoEncontradoException(
+                        "No se encontró la cuenta bancaria número " + numCuentaReq + " en el sistema");
+            }
+            Cuenta cta = cuentaOpt.get();
+            if (cta.getCliente() != null && !cta.getCliente().getId().equals(cliente.getId())) {
+                throw new ReglaNegocioException("La cuenta bancaria número " + numCuentaReq
+                        + " no pertenece al cliente con correo " + cliente.getCorreo());
+            }
+        } else {
+            // Resolver automáticamente la cuenta activa del cliente
+            List<Cuenta> cuentas = cuentaRepository.findByClienteId(cliente.getId());
+            cuentaOpt = cuentas.stream()
                     .filter(c -> "ACTIVA".equalsIgnoreCase(c.getEstatus()))
                     .findFirst();
 
             if (cuentaOpt.isEmpty()) {
-                cuentaOpt = cuentaRepository.findAll().stream()
-                        .filter(c -> "ACTIVA".equalsIgnoreCase(c.getEstatus()))
+                if (cuentas.isEmpty()) {
+                    throw new RecursoNoEncontradoException(
+                            "No se encontró ninguna cuenta registrada con el correo: " + cliente.getCorreo());
+                } else {
+                    throw new ReglaNegocioException(
+                            "El cliente con correo " + cliente.getCorreo() + " no posee ninguna cuenta bancaria en estado ACTIVA");
+                }
+            }
+        }
+
+        Cuenta cuenta = cuentaOpt.get();
+
+        if (!"ACTIVA".equalsIgnoreCase(cuenta.getEstatus())) {
+            throw new ReglaNegocioException("La cuenta bancaria número " + cuenta.getNumeroCuenta() + " no está activa (estado actual: " + cuenta.getEstatus() + ")");
+        }
+
+        request.setNumeroCuenta(cuenta.getNumeroCuenta());
+
+        return cuenta;
+    }
+
+    private Producto resolverYValidarProducto(PagoRequest request) {
+        String idProductoReq = request.getIdProducto();
+        String nombreProductoReq = request.getNombreProducto();
+        Integer idServicioReq = request.getIdServicio();
+
+        Optional<Producto> productoOpt = Optional.empty();
+
+        // 1. Si enviaron ID de producto explícito
+        if (idProductoReq != null && !idProductoReq.trim().isBlank()) {
+            productoOpt = productoRepository.findById(idProductoReq.trim());
+            if (productoOpt.isEmpty()) {
+                try {
+                    int idNum = Integer.parseInt(idProductoReq.trim());
+                    productoOpt = productoRepository.findByIdProducto(idNum);
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        // 2. Si no se encontró por ID o no enviaron ID, buscar por nombre del producto en el catálogo
+        if (productoOpt.isEmpty() && nombreProductoReq != null && !nombreProductoReq.trim().isBlank()) {
+            String busqueda = nombreProductoReq.trim().toLowerCase();
+            List<Producto> todos = productoRepository.findAll();
+
+            // Coincidencia exacta ignorando mayúsculas
+            productoOpt = todos.stream()
+                    .filter(p -> p.getNombre() != null && p.getNombre().trim().equalsIgnoreCase(busqueda))
+                    .findFirst();
+
+            // Coincidencia por contención
+            if (productoOpt.isEmpty()) {
+                productoOpt = todos.stream()
+                        .filter(p -> p.getNombre() != null &&
+                                (p.getNombre().toLowerCase().contains(busqueda) || busqueda.contains(p.getNombre().toLowerCase())))
                         .findFirst();
             }
         }
 
-        Cuenta cuenta = cuentaOpt.orElseThrow(() -> new RecursoNoEncontradoException(
-                "Cuenta bancaria no encontrada con número: " + numeroCuenta + " para el cliente ID: " + cliente.getId()));
-
-        if (!"ACTIVA".equalsIgnoreCase(cuenta.getEstatus())) {
-            throw new ReglaNegocioException("La cuenta bancaria número " + cuenta.getNumeroCuenta() + " no está activa (estado: " + cuenta.getEstatus() + ")");
-        }
-        return cuenta;
-    }
-
-    private Producto validarProductoYMontos(Integer idServicioReq, String idProducto, BigDecimal monto) {
-        if (idProducto == null || idProducto.trim().isEmpty()) {
-            throw new ReglaNegocioException("El ID del producto es obligatorio para procesar la transacción");
+        // 3. Si en idProducto enviaron el nombre en lugar de un ID
+        if (productoOpt.isEmpty() && idProductoReq != null && !idProductoReq.trim().isBlank() && !idProductoReq.matches("\\d+")) {
+            String busqueda = idProductoReq.trim().toLowerCase();
+            List<Producto> todos = productoRepository.findAll();
+            productoOpt = todos.stream()
+                    .filter(p -> p.getNombre() != null &&
+                            (p.getNombre().toLowerCase().contains(busqueda) || busqueda.contains(p.getNombre().toLowerCase())))
+                    .findFirst();
         }
 
-        Optional<Producto> productoOpt = productoRepository.findById(idProducto.trim());
-        if (productoOpt.isEmpty()) {
-            try {
-                int idNum = Integer.parseInt(idProducto.trim());
-                productoOpt = productoRepository.findByIdProducto(idNum);
-            } catch (NumberFormatException ignored) {}
+        // 4. Fallback estándar para pruebas: Producto ID 1 si el catálogo está vacío o se solicita recarga
+        if (productoOpt.isEmpty() && (
+                "1".equals(idProductoReq) ||
+                (nombreProductoReq != null && nombreProductoReq.toLowerCase().contains("recarga")) ||
+                (idProductoReq == null && nombreProductoReq == null)
+        )) {
+            Producto prod1 = productoRepository.findById("1").orElseGet(() -> {
+                Producto nuevoProd = new Producto();
+                nuevoProd.setId("1");
+                nuevoProd.setIdProducto(1);
+                nuevoProd.setIdServicio(idServicioReq != null ? idServicioReq : 1);
+                nuevoProd.setNombre("Recarga Telefónica y Pagos de Servicios");
+                nuevoProd.setPrecio(new BigDecimal("250.00"));
+                nuevoProd.setCategoria("Recargas y Servicios");
+                nuevoProd.setDisponible(true);
+                return productoRepository.save(nuevoProd);
+            });
+            productoOpt = Optional.of(prod1);
         }
 
-        // Si es el ID "1" (utilizado para pruebas estándar de recargas y pagos), registrarlo si no existe
-        if (productoOpt.isEmpty() && "1".equals(idProducto.trim())) {
-            Producto prod1 = new Producto();
-            prod1.setId("1");
-            prod1.setIdProducto(1);
-            prod1.setIdServicio(idServicioReq != null ? idServicioReq : 1);
-            prod1.setNombre("Recarga Telefónica y Pagos de Servicios");
-            prod1.setPrecio(new BigDecimal("250.00"));
-            prod1.setCategoria("Recargas y Servicios");
-            prod1.setDisponible(true);
-            productoOpt = Optional.of(productoRepository.save(prod1));
-            log.info("Producto de pruebas ID 1 ($250.00) registrado exitosamente en el catálogo.");
-        }
-
-        Producto producto = productoOpt.orElseThrow(() -> new RecursoNoEncontradoException(
-                "El producto solicitado (ID: " + idProducto + ") no existe en el catálogo"));
+        Producto producto = productoOpt.orElseThrow(() -> {
+            String detalle = (nombreProductoReq != null && !nombreProductoReq.isBlank())
+                    ? "nombre: '" + nombreProductoReq + "'"
+                    : "ID: '" + idProductoReq + "'";
+            return new RecursoNoEncontradoException("No se encontró ningún producto en el catálogo con " + detalle);
+        });
 
         if (producto.getDisponible() != null && !producto.getDisponible()) {
-            throw new ReglaNegocioException("El producto '" + producto.getNombre() + "' (ID: " + idProducto + ") no se encuentra disponible actualmente en el catálogo");
+            throw new ReglaNegocioException("El producto '" + producto.getNombre() + "' (ID: " + producto.getId() + ") no se encuentra disponible actualmente en el catálogo");
         }
 
-        if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new ReglaNegocioException("El monto a pagar debe ser mayor a $0.00");
+        // Auto-completar datos en request
+        request.setIdProducto(producto.getId() != null ? producto.getId() : String.valueOf(producto.getIdProducto()));
+        request.setNombreProducto(producto.getNombre());
+        if (request.getIdServicio() == null) {
+            request.setIdServicio(producto.getIdServicio() != null ? producto.getIdServicio() : 1);
         }
 
-        // Verificar consistencia del monto con el catálogo oficial (evitar manipulación de montos)
-        if (producto.getPrecio() != null && producto.getPrecio().compareTo(BigDecimal.ZERO) > 0) {
-            if (monto.compareTo(producto.getPrecio()) != 0) {
-                throw new ReglaNegocioException("El monto solicitado ($" + monto + ") no coincide con el valor autorizado para el producto '"
-                        + producto.getNombre() + "' ($" + producto.getPrecio() + "). Verifique los valores permitidos.");
+        // Si el usuario no especificó el monto, tomarlo automáticamente del catálogo oficial
+        if (request.getMonto() == null) {
+            if (producto.getPrecio() != null && producto.getPrecio().compareTo(BigDecimal.ZERO) > 0) {
+                request.setMonto(producto.getPrecio());
+                log.info("Monto autocompletado desde el catálogo: ${}", producto.getPrecio());
+            } else {
+                throw new ReglaNegocioException("El monto a pagar es obligatorio para productos sin precio fijo predeterminado");
+            }
+        } else {
+            if (request.getMonto().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ReglaNegocioException("El monto a pagar debe ser mayor a $0.00");
+            }
+            if (producto.getPrecio() != null && producto.getPrecio().compareTo(BigDecimal.ZERO) > 0) {
+                if (request.getMonto().compareTo(producto.getPrecio()) != 0) {
+                    throw new ReglaNegocioException("El monto solicitado ($" + request.getMonto() + ") no coincide con el valor autorizado para el producto '"
+                            + producto.getNombre() + "' ($" + producto.getPrecio() + "). Verifique los valores permitidos.");
+                }
             }
         }
 
-        // Validar correspondencia del ID de servicio con el producto si fue enviado en la petición
+        // Validar correspondencia del ID de servicio con el producto si fue enviado explícitamente
         if (idServicioReq != null && producto.getIdServicio() != null) {
             if (!idServicioReq.equals(producto.getIdServicio())) {
                 throw new ReglaNegocioException("El ID del servicio enviado (" + idServicioReq + ") no coincide con el servicio asignado al producto en el catálogo (" + producto.getIdServicio() + ").");
@@ -443,6 +563,34 @@ public class PagoServiceImpl implements PagoService {
         }
 
         return producto;
+    }
+
+    private void resolverYValidarReferencia(PagoRequest request, Cliente cliente) {
+        if (request.getReferencia() == null || request.getReferencia().trim().isBlank()) {
+            String prefijo = (cliente.getNombre() != null && !cliente.getNombre().isBlank())
+                    ? cliente.getNombre().trim().toUpperCase().replaceAll("[^A-Z0-9]", "")
+                    : "PAOLA";
+            String randomSuffix = String.format("%03d", (int)(Math.random() * 900) + 100);
+            String refGenerada = "REF-" + prefijo + "-" + randomSuffix;
+            while (pagoRepository.existsByReferenciaAndEstado(refGenerada, "EXITOSO")) {
+                randomSuffix = String.format("%03d", (int)(Math.random() * 900) + 100);
+                refGenerada = "REF-" + prefijo + "-" + randomSuffix;
+            }
+            request.setReferencia(refGenerada);
+            log.info("Referencia generada automáticamente: {}", refGenerada);
+        } else {
+            validarReferenciaEIdempotencia(request.getReferencia());
+        }
+    }
+
+    private void resolverTelefono(PagoRequest request, Cliente cliente) {
+        if (request.getTelefono() == null || request.getTelefono().trim().isBlank()) {
+            if (cliente.getTelefonoMovil() != null && !cliente.getTelefonoMovil().isBlank()) {
+                request.setTelefono(cliente.getTelefonoMovil().trim());
+            } else {
+                request.setTelefono("5512345678");
+            }
+        }
     }
 
     private void validarReferenciaEIdempotencia(String referencia) {
