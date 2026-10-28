@@ -39,7 +39,11 @@ public class PagoConfirmacionResponse {
     private String mensaje;
 
     @Schema(description = "Detalle financiero, de auditoría y ticket digital de la transacción")
-    private Object data;
+    private DetallePago data;
+
+    public boolean isState() {
+        return Boolean.TRUE.equals(state);
+    }
 
     @Data
     @Builder

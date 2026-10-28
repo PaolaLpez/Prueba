@@ -43,7 +43,21 @@ public class PagoController {
             summary = "Procesar y confirmar compra / pago transaccional",
             description = "Flujo transaccional robusto en 2 fases:\n\n" +
                     "1. **Fase de Desafío 2FA**: Envía la petición con `dobleAutenticacion: null`. El sistema valida la cuenta activa, la pertenencia al cliente, la existencia en catálogo y consistencia de montos del producto, y despacha un código OTP de 6 dígitos al correo electrónico registrado vía la API de Brevo.\n\n" +
-                    "2. **Fase de Confirmación**: Envía la misma petición agregando el código recibido en `dobleAutenticacion`. El sistema valida el 2FA, aplica bloqueo pesimista de saldo con reserva preventiva, consume `POST https://gestopago.portalventas.net/sistema/service/sendTx.do` con autenticación Bearer, actualiza el saldo a nivel definitivo y envía el comprobante digital al correo del cliente con Brevo."
+                    "2. **Fase de Confirmación**: Envía la misma petición agregando el código recibido en `dobleAutenticacion`. El sistema valida el 2FA, aplica bloqueo pesimista de saldo con reserva preventiva, consume `POST https://gestopago.portalventas.net/sistema/service/sendTx.do` con autenticación Bearer, actualiza el saldo a nivel definitivo y envía el comprobante digital al correo del cliente con Brevo.",
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Parámetros para procesar o confirmar la transacción",
+                    required = true,
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = PagoRequest.class),
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Parámetros de Pago",
+                                            value = "{\n  \"correo\": \"lopezpao869@gmail.com\",\n  \"nombreProducto\": \"Recarga Telefónica y Pagos de Servicios\",\n  \"monto\": 250.00,\n  \"telefono\": \"5512345678\",\n  \"dobleAutenticacion\": \"853927\"\n}"
+                                    )
+                            }
+                    )
+            )
     )
     @ApiResponses(value = {
             @ApiResponse(

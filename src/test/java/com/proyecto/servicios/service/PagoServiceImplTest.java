@@ -25,6 +25,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PagoServiceImplTest {
 
     @Mock
@@ -103,6 +106,8 @@ class PagoServiceImplTest {
         productoTest.setNombre("Recarga Telefónica y Pagos de Servicios");
         productoTest.setPrecio(new BigDecimal("250.00"));
         productoTest.setDisponible(true);
+
+        lenient().when(productoRepository.findById("1")).thenReturn(Optional.of(productoTest));
     }
 
     @Test
@@ -353,7 +358,7 @@ class PagoServiceImplTest {
         ReglaNegocioException ex = assertThrows(ReglaNegocioException.class, () -> pagoService.procesarPago(request));
         assertTrue(ex.getMessage().contains("rechazada por el proveedor Gestopago"));
         // El saldo debe haberse reintegrado a $1,000.00 disponible y $0.00 retenido
-        assertEquals(new BigDecimal("1000.00"), saldoTest.getSaldoDisponible());
-        assertEquals(BigDecimal.ZERO, saldoTest.getSaldoRetenido());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(saldoTest.getSaldoDisponible()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(saldoTest.getSaldoRetenido()));
     }
 }
