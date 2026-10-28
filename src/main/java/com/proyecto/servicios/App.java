@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import java.math.BigDecimal;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 
 @SpringBootApplication(scanBasePackages = {"com.proyecto.servicios", "com.proyecto.servicio.empresa"})
 @EnableCaching
@@ -69,24 +70,45 @@ public class App implements CommandLineRunner {
             com.proyecto.servicios.repositorys.cliente.ClienteRepository clienteRepo = context.getBean(com.proyecto.servicios.repositorys.cliente.ClienteRepository.class);
             com.proyecto.servicios.repositorys.cuenta.SaldoRepository saldoRepo = context.getBean(com.proyecto.servicios.repositorys.cuenta.SaldoRepository.class);
 
-            if (cuentaRepo.findByNumeroCuenta("5730094736").isEmpty()) {
-                com.proyecto.servicios.entity.cliente.Cliente cli = clienteRepo.findByCorreo("isapaola188@gmail.com")
-                        .orElseGet(() -> {
-                            com.proyecto.servicios.entity.cliente.Cliente nuevo = new com.proyecto.servicios.entity.cliente.Cliente();
-                            nuevo.setNombre("Paola");
-                            nuevo.setApellidoPaterno("Lopez");
-                            nuevo.setApellidoMaterno("Garcia");
-                            nuevo.setCurp("LOGP950520MDFR01");
-                            nuevo.setRfc("LOGP9505201A0");
-                            nuevo.setCorreo("isapaola188@gmail.com");
-                            nuevo.setTelefonoMovil("5512345678");
-                            nuevo.setFechaNacimiento(java.time.LocalDate.of(1995, 5, 20));
-                            nuevo.setIngresoMensual(new BigDecimal("25000.00"));
-                            nuevo.setActivo(true);
-                            return clienteRepo.save(nuevo);
-                        });
+            // Asegurar que exista el cliente Paola López con correo lopezpao869@gmail.com y cuenta 5730094736
+            com.proyecto.servicios.entity.cliente.Cliente cli = clienteRepo.findByCorreo("lopezpao869@gmail.com")
+                    .or(() -> clienteRepo.findById(3))
+                    .orElseGet(() -> {
+                        com.proyecto.servicios.entity.cliente.Cliente nuevo = new com.proyecto.servicios.entity.cliente.Cliente();
+                        nuevo.setNombre("Paola");
+                        nuevo.setApellidoPaterno("Lopez");
+                        nuevo.setApellidoMaterno("Garcia");
+                        nuevo.setCurp("LOGP980515MMCPRL09");
+                        nuevo.setRfc("LOGP980515AA0");
+                        nuevo.setCorreo("lopezpao869@gmail.com");
+                        nuevo.setTelefonoMovil("5512345678");
+                        nuevo.setFechaNacimiento(java.time.LocalDate.of(1998, 5, 15));
+                        nuevo.setIngresoMensual(new BigDecimal("30000.00"));
+                        nuevo.setActivo(true);
+                        return clienteRepo.save(nuevo);
+                    });
 
-                com.proyecto.servicios.entity.cuenta.Cuenta cta = new com.proyecto.servicios.entity.cuenta.Cuenta();
+            boolean modificado = false;
+            if (!"lopezpao869@gmail.com".equalsIgnoreCase(cli.getCorreo())) {
+                cli.setCorreo("lopezpao869@gmail.com");
+                modificado = true;
+            }
+            if (!"5512345678".equals(cli.getTelefonoMovil())) {
+                cli.setTelefonoMovil("5512345678");
+                modificado = true;
+            }
+            if (cli.getActivo() == null || !cli.getActivo()) {
+                cli.setActivo(true);
+                modificado = true;
+            }
+            if (modificado) {
+                cli = clienteRepo.save(cli);
+            }
+
+            Optional<com.proyecto.servicios.entity.cuenta.Cuenta> ctaOpt = cuentaRepo.findByNumeroCuenta("5730094736");
+            com.proyecto.servicios.entity.cuenta.Cuenta cta;
+            if (ctaOpt.isEmpty()) {
+                cta = new com.proyecto.servicios.entity.cuenta.Cuenta();
                 cta.setCliente(cli);
                 cta.setNumeroCuenta("5730094736");
                 cta.setEstatus("ACTIVA");
@@ -94,14 +116,35 @@ public class App implements CommandLineRunner {
 
                 com.proyecto.servicios.entity.cuenta.Saldo sld = new com.proyecto.servicios.entity.cuenta.Saldo();
                 sld.setCuenta(cta);
-                sld.setSaldoDisponible(new BigDecimal("2500.00"));
+                sld.setSaldoDisponible(new BigDecimal("1500.00"));
                 sld.setSaldoRetenido(BigDecimal.ZERO);
                 saldoRepo.save(sld);
-
-                log.info("Cliente Paola López (ID {}), Cuenta 5730094736 y Saldo ($2,500.00) creados exitosamente para pruebas.", cli.getId());
+                log.info("Cliente Paola López (ID {}), Cuenta 5730094736 y Saldo ($1,500.00) creados exitosamente.", cli.getId());
+            } else {
+                cta = ctaOpt.get();
+                if (cta.getCliente() == null || !cli.getId().equals(cta.getCliente().getId()) || !"ACTIVA".equalsIgnoreCase(cta.getEstatus())) {
+                    cta.setCliente(cli);
+                    cta.setEstatus("ACTIVA");
+                    cuentaRepo.save(cta);
+                }
+                Optional<com.proyecto.servicios.entity.cuenta.Saldo> sldOpt = saldoRepo.findByCuentaId(cta.getId());
+                if (sldOpt.isEmpty()) {
+                    com.proyecto.servicios.entity.cuenta.Saldo sld = new com.proyecto.servicios.entity.cuenta.Saldo();
+                    sld.setCuenta(cta);
+                    sld.setSaldoDisponible(new BigDecimal("1500.00"));
+                    sld.setSaldoRetenido(BigDecimal.ZERO);
+                    saldoRepo.save(sld);
+                } else {
+                    com.proyecto.servicios.entity.cuenta.Saldo sld = sldOpt.get();
+                    if (sld.getSaldoDisponible() == null || sld.getSaldoDisponible().compareTo(new BigDecimal("250.00")) < 0) {
+                        sld.setSaldoDisponible(new BigDecimal("1500.00"));
+                        saldoRepo.save(sld);
+                    }
+                }
+                log.info("Cliente Paola López (ID {}), Cuenta 5730094736 vinculada y activa.", cli.getId());
             }
         } catch (Exception ex) {
-            log.warn("No fue posible inicializar la cuenta de prueba 5730094736: {}", ex.getMessage());
+            log.warn("No fue posible inicializar o sincronizar la cuenta de prueba 5730094736: {}", ex.getMessage());
         }
     }
 

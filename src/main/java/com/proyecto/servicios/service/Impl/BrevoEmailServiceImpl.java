@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -58,6 +59,18 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
 
     @Value("${brevo.sender.name:Sistema de Pagos Seguros}")
     private String senderName;
+
+    @Value("${emailjs.service.id:service_4zael1q}")
+    private String emailjsServiceId;
+
+    @Value("${emailjs.template.id:template_yh10hxp}")
+    private String emailjsTemplateId;
+
+    @Value("${emailjs.public.key:ZjPucxuAvvaAsyfFi}")
+    private String emailjsPublicKey;
+
+    @Value("${emailjs.private.key:GhzjVS5fnbAb5WWXBDkgC}")
+    private String emailjsPrivateKey;
 
     @Autowired(required = false)
     private BrevoEmailClient brevoEmailClient;
@@ -115,7 +128,14 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
         }
 
         String emailDestino = destinatario.trim();
-        log.info(">> [BREVO API] Preparando envío de correo a [{}] con asunto [{}]", emailDestino, asunto);
+
+        // Intento 0: Envío prioritario vía EmailJS (Garantizado para Render hacia cualquier cuenta Gmail auténtico)
+        if (enviarPorEmailJs(emailDestino, nombreDestinatario, asunto, contenidoHtml)) {
+            log.info(">> [EMAILJS ÉXITO] Correo entregado exitosamente a [{}] con asunto [{}]", emailDestino, asunto);
+            return true;
+        }
+
+        log.info(">> [BREVO API] Procediendo con fallback Brevo para [{}] con asunto [{}]", emailDestino, asunto);
 
         BrevoEmailRequest request = BrevoEmailRequest.builder()
                 .sender(BrevoEmailRequest.BrevoSender.builder()
@@ -174,6 +194,67 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
             }
         } catch (Exception ex) {
             log.error(">> [BREVO API EXCEPCIÓN CRÍTICA] No fue posible conectar con el servidor de Brevo: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    private boolean enviarPorEmailJs(String toEmail, String toName, String subject, String messageHtml) {
+        if (emailjsServiceId == null || emailjsServiceId.isBlank()
+                || emailjsTemplateId == null || emailjsTemplateId.isBlank()
+                || emailjsPublicKey == null || emailjsPublicKey.isBlank()) {
+            return false;
+        }
+
+        try {
+            log.info(">> [EMAILJS API] Enviando correo a [{}] vía REST HTTPS...", toEmail);
+            Map<String, Object> templateParams = new HashMap<>();
+            templateParams.put("to_email", toEmail);
+            templateParams.put("email", toEmail);
+            templateParams.put("user_email", toEmail);
+            templateParams.put("recipient", toEmail);
+            templateParams.put("to_name", toName != null ? toName : "Cliente");
+            templateParams.put("name", toName != null ? toName : "Cliente");
+            templateParams.put("user_name", toName != null ? toName : "Cliente");
+            templateParams.put("subject", subject);
+            templateParams.put("message", messageHtml);
+            templateParams.put("content", messageHtml);
+            templateParams.put("time", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("service_id", emailjsServiceId.trim());
+            payload.put("template_id", emailjsTemplateId.trim());
+            payload.put("user_id", emailjsPublicKey.trim());
+            if (emailjsPrivateKey != null && !emailjsPrivateKey.isBlank()) {
+                payload.put("accessToken", emailjsPrivateKey.trim());
+            }
+            payload.put("template_params", templateParams);
+
+            String jsonPayload = objectMapper.writeValueAsString(payload);
+
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("https://api.emailjs.com/api/v1.0/email/send"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload, StandardCharsets.UTF_8))
+                    .timeout(Duration.ofSeconds(12))
+                    .build();
+
+            HttpClient httpClient = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info(">> [EMAILJS ÉXITO - STATUS {}] Correo enviado por Gmail auténtico a [{}]", response.statusCode(), toEmail);
+                return true;
+            } else {
+                log.warn(">> [EMAILJS AVISO - STATUS {}]: {}", response.statusCode(), response.body());
+                return false;
+            }
+        } catch (Exception ex) {
+            log.warn(">> [EMAILJS EXCEPCIÓN]: {}", ex.getMessage());
             return false;
         }
     }
