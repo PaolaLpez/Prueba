@@ -361,4 +361,208 @@ class PagoServiceImplTest {
         assertEquals(0, new BigDecimal("1000.00").compareTo(saldoTest.getSaldoDisponible()));
         assertEquals(0, BigDecimal.ZERO.compareTo(saldoTest.getSaldoRetenido()));
     }
+
+    @Test
+    @DisplayName("Debe rechazar si el código 2FA ingresado es incorrecto")
+    void testRechazar2FAInvalido() {
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .monto(new BigDecimal("250.00"))
+                .dobleAutenticacion("999999")
+                .referencia("REF-2FA-ERRONEO")
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findAll()).thenReturn(List.of(productoTest));
+        when(pagoRepository.existsByReferenciaAndEstado("REF-2FA-ERRONEO", "EXITOSO")).thenReturn(false);
+        when(email2FAService.validarCodigo2FA(3, "5730094736", "999999")).thenReturn(false);
+
+        ReglaNegocioException ex = assertThrows(ReglaNegocioException.class, () -> pagoService.procesarPago(request));
+        assertTrue(ex.getMessage().contains("incorrecto o ha expirado"));
+    }
+
+    @Test
+    @DisplayName("Debe rechazar si el cliente no existe")
+    void testRechazarClienteNoExiste() {
+        PagoRequest request = PagoRequest.builder()
+                .correo("noexiste@gmail.com")
+                .build();
+        when(clienteRepository.findByCorreoIgnoreCase("noexiste@gmail.com")).thenReturn(Optional.empty());
+
+        assertThrows(RecursoNoEncontradoException.class, () -> pagoService.procesarPago(request));
+    }
+
+    @Test
+    @DisplayName("Debe rechazar si la cuenta no pertenece al cliente")
+    void testRechazarCuentaNoPerteneceACliente() {
+        Cliente otroCliente = new Cliente();
+        otroCliente.setId(99);
+        Cuenta cuentaAjena = new Cuenta();
+        cuentaAjena.setNumeroCuenta("9999999999");
+        cuentaAjena.setCliente(otroCliente);
+        cuentaAjena.setEstatus("ACTIVA");
+
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .numeroCuenta("9999999999")
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByNumeroCuenta("9999999999")).thenReturn(Optional.of(cuentaAjena));
+
+        assertThrows(ReglaNegocioException.class, () -> pagoService.procesarPago(request));
+    }
+
+    @Test
+    @DisplayName("Debe rechazar si el producto no está disponible en el catálogo")
+    void testRechazarProductoNoDisponible() {
+        Producto prodNoDisp = new Producto();
+        prodNoDisp.setId("2");
+        prodNoDisp.setNombre("Inactivo");
+        prodNoDisp.setDisponible(false);
+
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .idProducto("2")
+                .monto(new BigDecimal("100.00"))
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findById("2")).thenReturn(Optional.of(prodNoDisp));
+
+        assertThrows(ReglaNegocioException.class, () -> pagoService.procesarPago(request));
+    }
+
+    @Test
+    @DisplayName("Debe autogenerar referencia y resolver teléfono si no vienen especificados")
+    void testAutogenerarReferenciaYTelefono() {
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .monto(new BigDecimal("250.00"))
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findAll()).thenReturn(List.of(productoTest));
+        when(pagoRepository.existsByReferenciaAndEstado(anyString(), eq("EXITOSO"))).thenReturn(false);
+
+        PagoConfirmacionResponse resp = pagoService.procesarPago(request);
+        assertNotNull(resp);
+        assertNotNull(request.getReferencia());
+        assertTrue(request.getReferencia().startsWith("REF-"));
+        assertEquals("5512345678", request.getTelefono());
+    }
+
+    @Test
+    @DisplayName("Debe resolver cliente por idCliente y por numeroCuenta")
+    void testResolverClientePorIdYPorCuenta() {
+        // Por ID de cliente
+        PagoRequest reqId = PagoRequest.builder()
+                .idCliente(3)
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .monto(new BigDecimal("250.00"))
+                .build();
+        when(clienteRepository.findById(3)).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findAll()).thenReturn(List.of(productoTest));
+        when(pagoRepository.existsByReferenciaAndEstado(anyString(), eq("EXITOSO"))).thenReturn(false);
+
+        PagoConfirmacionResponse respId = pagoService.procesarPago(reqId);
+        assertNotNull(respId);
+
+        // Por número de cuenta
+        PagoRequest reqCta = PagoRequest.builder()
+                .numeroCuenta("5730094736")
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .monto(new BigDecimal("250.00"))
+                .build();
+        when(cuentaRepository.findByNumeroCuenta("5730094736")).thenReturn(Optional.of(cuentaTest));
+
+        PagoConfirmacionResponse respCta = pagoService.procesarPago(reqCta);
+        assertNotNull(respCta);
+    }
+
+    @Test
+    @DisplayName("Debe manejar excepciones al enviar comprobante de correo sin fallar el pago")
+    void testManejoExcepcionEnvioCorreoComprobante() {
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .monto(new BigDecimal("250.00"))
+                .dobleAutenticacion("123456")
+                .referencia("REF-FALLO-MAIL")
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findAll()).thenReturn(List.of(productoTest));
+        when(pagoRepository.existsByReferenciaAndEstado("REF-FALLO-MAIL", "EXITOSO")).thenReturn(false);
+        when(email2FAService.validarCodigo2FA(3, "5730094736", "123456")).thenReturn(true);
+        when(saldoRepository.findByCuentaIdForUpdate(3)).thenReturn(Optional.of(saldoTest));
+
+        Pago pagoMock = Pago.builder().id(200L).numeroCuenta("5730094736").cliente(clienteTest).monto(new BigDecimal("250.00")).build();
+        when(pagoRepository.save(any(Pago.class))).thenReturn(pagoMock);
+
+        GestoPagoTxResponse txOk = GestoPagoTxResponse.builder().exitoso(true).codigo(0).folio("FOL1").autorizacion("AUT1").build();
+        when(gestoPagoTxService.enviarTransaccion(any(), any(), any(), any(), any(), any())).thenReturn(txOk);
+
+        doThrow(new RuntimeException("Mail server error")).when(email2FAService)
+                .enviarComprobantePago(anyString(), anyString(), anyString(), any(), anyString(), anyString(), anyString(), any());
+
+        PagoConfirmacionResponse resp = pagoService.procesarPago(request);
+        assertNotNull(resp);
+        assertTrue(resp.isState());
+    }
+
+    @Test
+    @DisplayName("Debe autocompletar monto cuando request.monto es nulo y el producto tiene precio fijo")
+    void testMontoNulo_AutocompletaPrecio() {
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .monto(null)
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findAll()).thenReturn(List.of(productoTest));
+        when(pagoRepository.existsByReferenciaAndEstado(anyString(), eq("EXITOSO"))).thenReturn(false);
+
+        PagoConfirmacionResponse resp = pagoService.procesarPago(request);
+        assertNotNull(resp);
+        assertEquals(new BigDecimal("250.00"), request.getMonto());
+    }
+
+    @Test
+    @DisplayName("Debe rechazar si el idServicio enviado no coincide con el del producto")
+    void testRechazarServicioNoCoincide() {
+        PagoRequest request = PagoRequest.builder()
+                .correo("lopezpao869@gmail.com")
+                .nombreProducto("Recarga Telefónica y Pagos de Servicios")
+                .idServicio(99) // Producto tiene servicio 1
+                .monto(new BigDecimal("250.00"))
+                .build();
+
+        when(clienteRepository.findByCorreoIgnoreCase("lopezpao869@gmail.com")).thenReturn(Optional.of(clienteTest));
+        when(cuentaRepository.findByClienteId(3)).thenReturn(List.of(cuentaTest));
+        when(productoRepository.findAll()).thenReturn(List.of(productoTest));
+
+        assertThrows(ReglaNegocioException.class, () -> pagoService.procesarPago(request));
+    }
+
+    @Test
+    @DisplayName("Debe rechazar si no se especifica identificador y cliente 3 no existe")
+    void testSinIdentificador_Cliente3NoExiste() {
+        PagoRequest request = PagoRequest.builder()
+                .monto(new BigDecimal("250.00"))
+                .build();
+
+        when(clienteRepository.findById(3)).thenReturn(Optional.empty());
+
+        assertThrows(ReglaNegocioException.class, () -> pagoService.procesarPago(request));
+    }
 }

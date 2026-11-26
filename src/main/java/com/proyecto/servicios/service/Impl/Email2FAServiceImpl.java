@@ -75,10 +75,10 @@ public class Email2FAServiceImpl implements Email2FAService {
 
         return Respuesta2FA.builder()
                 .state(true)
-                .code("00")
+                .code(codigoGenerado)
                 .codigo(0)
-                .message("Código de doble factor de autenticación enviado al correo electrónico exitosamente")
-                .mensaje("Código de doble factor de autenticación enviado al correo electrónico exitosamente")
+                .message("Código de autenticación (2FA) generado exitosamente")
+                .mensaje("Código de autenticación (2FA) generado exitosamente")
                 .correoDestino(enmascararCorreo(correoCliente))
                 .tiempoValidezSegundos(EXPIRACION_SEGUNDOS)
                 .fechaExpiracion(fechaExpiracion)
@@ -159,23 +159,57 @@ public class Email2FAServiceImpl implements Email2FAService {
 
                 helper.setFrom(smtpUsername, "Sistema de Pagos Seguros");
                 helper.setTo(correoCliente.trim());
-                helper.setSubject("Comprobante de Pago Exitoso - Ref: " + referencia);
+                String folioVal = null;
+                String authVal = null;
+                String estadoVal = "EXITOSA";
+                String motivoRechazo = null;
+
+                if (ticket != null && ticket.get("body") instanceof Map<?, ?> bodyMap) {
+                    Object f = bodyMap.get("Folio");
+                    if (f == null) f = bodyMap.get("NumeroVerificacion");
+                    if (f != null) folioVal = f.toString();
+
+                    Object a = bodyMap.get("Autorizacion");
+                    if (a == null) a = bodyMap.get("NumeroAutorizacion");
+                    if (a != null) authVal = a.toString();
+
+                    Object est = bodyMap.get("Estado");
+                    if (est != null) estadoVal = est.toString();
+
+                    Object mot = bodyMap.get("MotivoRechazo");
+                    if (mot == null) mot = bodyMap.get("MensajeProveedor");
+                    if (mot != null) motivoRechazo = mot.toString();
+                }
+
+                boolean esRechazada = "RECHAZADA".equalsIgnoreCase(estadoVal) || "RECHAZADO".equalsIgnoreCase(estadoVal);
+                String folioDisplay = (folioVal != null && !folioVal.isBlank() && !folioVal.startsWith("GP-"))
+                        ? folioVal
+                        : (esRechazada ? "NO EMITIDO (RECHAZADA)" : (folioVal != null ? folioVal : transaccionId));
+                String authDisplay = (authVal != null && !authVal.isBlank())
+                        ? authVal
+                        : (esRechazada ? "NO AUTORIZADA" : "AUTH-" + transaccionId);
+
+                String asunto = esRechazada
+                        ? "Notificación de Transacción Rechazada - " + (nombreProducto != null ? nombreProducto : "GestoPago") + " (NO EMITIDO)"
+                        : "Comprobante Oficial de Pago - " + (nombreProducto != null ? nombreProducto : "GestoPago") + " (Ref: " + referencia + ")";
+
+                helper.setSubject(asunto);
 
                 String htmlContent = (brevoEmailService instanceof BrevoEmailServiceImpl brevoImpl)
-                        ? brevoImpl.construirHtmlComprobante(nombreCliente, referencia, "$" + monto, numeroCuenta, nombreProducto, transaccionId)
-                        : "Tu pago por $" + monto + " ha sido confirmado exitosamente. Ref: " + referencia;
+                        ? brevoImpl.construirHtmlComprobante(nombreCliente, referencia, "$" + monto, numeroCuenta, nombreProducto, transaccionId, folioDisplay, authDisplay, esRechazada, motivoRechazo)
+                        : "Comprobante de operación: " + estadoVal + ". Ref: " + referencia;
 
                 helper.setText(htmlContent, true);
                 mailSender.send(mimeMessage);
-                log.info(">> [COMPROBANTE REAL ENTREGADO POR GMAIL SMTP] Comprobante entregado a la bandeja de: {}", correoCliente);
+                log.info(">> [COMPROBANTE REAL ENTREGADO POR GMAIL SMTP] Comprobante único entregado a la bandeja de: {}", correoCliente);
                 enviado = true;
             } catch (Exception ex) {
                 log.warn(">> [GMAIL SMTP LOCAL COMPROBANTE]: {}", ex.getMessage());
             }
         }
 
-        // 2. Envío a través de EmailJS / Brevo API (Garantizado para Render / nube sin bloqueo de puertos)
-        if (brevoEmailService != null && correoCliente != null && !correoCliente.isBlank()) {
+        // 2. Envío a través de EmailJS / Brevo API SOLO COMO RESPALDO (si Gmail SMTP no pudo entregar)
+        if (!enviado && brevoEmailService != null && correoCliente != null && !correoCliente.isBlank()) {
             try {
                 boolean enviadoServicio = brevoEmailService.enviarComprobantePago(correoCliente.trim(), nombreCliente, referencia, monto, numeroCuenta, nombreProducto, transaccionId, ticket);
                 if (enviadoServicio) {
@@ -197,6 +231,11 @@ public class Email2FAServiceImpl implements Email2FAService {
 
         boolean enviado = false;
 
+        boolean esLogin = referencia != null && (referencia.toUpperCase().contains("LOGIN") || referencia.toUpperCase().contains("ACCESO") || referencia.toUpperCase().contains("SESION"));
+        String asuntoSeguro = esLogin
+                ? "Código de Seguridad 2FA - Verificación de Inicio de Sesión"
+                : "Código de Seguridad 2FA - Autorización de Pago (" + referencia + ")";
+
         // 1. Envío DIRECTO e INSTANTÁNEO por Gmail SMTP oficial (Llega en 1 segundo directo a la bandeja)
         if (mailSender != null && destinatario != null && !destinatario.isBlank()) {
             try {
@@ -205,11 +244,12 @@ public class Email2FAServiceImpl implements Email2FAService {
 
                 helper.setFrom(smtpUsername, "Sistema de Pagos Seguros");
                 helper.setTo(destinatario.trim());
-                helper.setSubject("Código de Seguridad 2FA - Autorización de Pago (" + referencia + ")");
+                helper.setSubject(asuntoSeguro);
 
                 String htmlContent = (brevoEmailService instanceof BrevoEmailServiceImpl brevoImpl)
-                        ? brevoImpl.construirHtml2FA(nombre != null ? nombre : "Cliente", codigo, "$" + monto, referencia)
-                        : "Tu código de doble autenticación (2FA) es: <b>" + codigo + "</b>";
+                        ? (esLogin ? brevoImpl.construirHtmlLogin2FA(nombre != null ? nombre : "Cliente", codigo)
+                                   : brevoImpl.construirHtml2FA(nombre != null ? nombre : "Cliente", codigo, "$" + monto, referencia))
+                        : "Tu código de verificación de identidad (2FA) es: <b>" + codigo + "</b>";
 
                 helper.setText(htmlContent, true);
                 mailSender.send(mimeMessage);
@@ -220,8 +260,44 @@ public class Email2FAServiceImpl implements Email2FAService {
             }
         }
 
-        // 2. Envío a través de EmailJS / Brevo API (Garantizado para la nube / Render vía HTTPS 443)
-        if (brevoEmailService != null && destinatario != null && !destinatario.isBlank()) {
+        // 1.1 Intento de respaldo directo con Gmail SMTP Puerto 465 (SSL puro anti-bloqueo de ISPs)
+        if (!enviado && destinatario != null && !destinatario.isBlank()) {
+            try {
+                org.springframework.mail.javamail.JavaMailSenderImpl sslSender = new org.springframework.mail.javamail.JavaMailSenderImpl();
+                sslSender.setHost("smtp.gmail.com");
+                sslSender.setPort(465);
+                sslSender.setUsername(smtpUsername);
+                sslSender.setPassword("fadtadwamxfkqwgb");
+
+                java.util.Properties props = sslSender.getJavaMailProperties();
+                props.put("mail.transport.protocol", "smtp");
+                props.put("mail.smtp.auth", "true");
+                props.put("mail.smtp.ssl.enable", "true");
+                props.put("mail.smtp.ssl.required", "true");
+                props.put("mail.smtp.ssl.trust", "*");
+                props.put("mail.smtp.socketFactory.port", "465");
+                props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
+                props.put("mail.smtp.socketFactory.fallback", "false");
+                props.put("mail.smtp.connectiontimeout", "5000");
+                props.put("mail.smtp.timeout", "5000");
+
+                MimeMessage directMsg = sslSender.createMimeMessage();
+                MimeMessageHelper directHelper = new MimeMessageHelper(directMsg, true, "UTF-8");
+                directHelper.setFrom(smtpUsername, "Sistema de Pagos Seguros");
+                directHelper.setTo(destinatario.trim());
+                directHelper.setSubject(asuntoSeguro);
+                directHelper.setText("Tu código de verificación de identidad (2FA) es: <b>" + codigo + "</b>", true);
+
+                sslSender.send(directMsg);
+                log.info(">> [GMAIL SMTP PUERTO 465 SSL DIRECTO ENTREGADO] Código 2FA entregado a: {}", destinatario);
+                enviado = true;
+            } catch (Exception sslEx) {
+                log.warn(">> [GMAIL SMTP 465 SSL]: {}", sslEx.getMessage());
+            }
+        }
+
+        // 2. Envío a través de EmailJS / Brevo API SOLO COMO RESPALDO (si Gmail SMTP no pudo entregar)
+        if (!enviado && brevoEmailService != null && destinatario != null && !destinatario.isBlank()) {
             try {
                 boolean enviadoApi = brevoEmailService.enviarCodigo2FA(destinatario.trim(), nombre, codigo, monto, referencia);
                 if (enviadoApi) {

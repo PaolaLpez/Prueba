@@ -3,6 +3,8 @@ package com.proyecto.servicios.service;
 import com.proyecto.servicios.model.dto.pago.PagoConfirmacionResponse;
 import com.proyecto.servicios.model.dto.pago.PagoRequest;
 
+import java.util.List;
+
 /**
  * Contrato de negocio para procesar pagos seguros con validación de cliente, saldo,
  * doble autenticación 2FA por correo, cifrado de datos y confirmación del pago.
@@ -17,4 +19,9 @@ public interface PagoService {
      * envía la estructura cifrada más el token y confirma el pago exitoso en una sola petición.
      */
     PagoConfirmacionResponse procesarPago(PagoRequest request);
+
+    /**
+     * Consulta el historial completo de pagos y compras realizadas por el cliente.
+     */
+    List<PagoConfirmacionResponse.DetallePago> consultarHistorialCliente(Integer clienteId);
 }

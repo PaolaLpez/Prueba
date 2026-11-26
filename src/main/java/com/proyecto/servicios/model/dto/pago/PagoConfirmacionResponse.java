@@ -109,6 +109,18 @@ public class PagoConfirmacionResponse {
         @Schema(description = "Estado transaccional: EXITOSA, PENDIENTE_CONCILIACION, PENDIENTE_CODIGO_2FA", example = "EXITOSA")
         private String estadoTransaccion;
 
+        @Schema(description = "Número o Folio de verificación devuelto por el servicio", example = "GP-17320491823")
+        private String folio;
+
+        @Schema(description = "Número de autorización devuelto por el servicio", example = "AUTH-849201")
+        private String autorizacion;
+
+        @Schema(description = "Número de verificación oficial", example = "GP-17320491823")
+        private String numeroVerificacion;
+
+        @Schema(description = "Número de autorización oficial", example = "AUTH-849201")
+        private String numeroAutorizacion;
+
         @Schema(description = "Fecha y hora de creación del registro")
         private LocalDateTime fechaTransaccion;
 

@@ -397,6 +397,27 @@ public class ClienteServiceImpl implements ClienteService {
                 }
             }
 
+            // Actualización de contraseña si viene presente en la petición
+            if (request.getPassword() != null && !request.getPassword().trim().isEmpty()) {
+                validarPasswordSegura(request.getPassword());
+                Optional<UsuarioLogin> loginOpt = usuarioLoginRepository.findByClienteId(id)
+                        .or(() -> usuarioLoginRepository.findByUsername(clienteActualiza.getCorreo()));
+                if (loginOpt.isPresent()) {
+                    UsuarioLogin login = loginOpt.get();
+                    login.setPasswordHash(request.getPassword().trim());
+                    usuarioLoginRepository.save(login);
+                    log.info("Contraseña de login actualizada exitosamente para cliente ID {}", id);
+                } else {
+                    UsuarioLogin nuevoLogin = new UsuarioLogin();
+                    nuevoLogin.setCliente(clienteActualiza);
+                    nuevoLogin.setUsername(clienteActualiza.getCorreo());
+                    nuevoLogin.setPasswordHash(request.getPassword().trim());
+                    nuevoLogin.setActivo(true);
+                    usuarioLoginRepository.save(nuevoLogin);
+                    log.info("Nuevo registro de login creado exitosamente con la contraseña para cliente ID {}", id);
+                }
+            }
+
             Cliente clienteGuardado = clienteRepository.save(clienteActualiza);
             log.info("Cliente con ID {} actualizado correctamente", id);
             return mapToResponse(clienteGuardado, cuentaRepository.findByClienteId(id));
