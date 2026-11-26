@@ -18,14 +18,27 @@ import java.util.Optional;
 @Slf4j
 public class GlobalExceptionHandler {
 
-    // La validación de peticiones (@Valid) que lanzan MethodArgumentNotValidException 
-    // es gestionada por com.proyecto.servicio.empresa.controller.ValidadorCampos
-    /*
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
-        ...
+        log.warn("Error de validación en la petición: {}", ex.getMessage());
+
+        String errores = ex.getBindingResult().getFieldErrors().stream()
+                .map(org.springframework.validation.FieldError::getDefaultMessage)
+                .collect(java.util.stream.Collectors.joining(", "));
+
+        if (errores == null || errores.isEmpty()) {
+            errores = "Datos de entrada inválidos en la petición";
+        }
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Validación Fallida")
+                .mensaje(errores)
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
-    */
 
     // Captura errores de formato JSON, tipos de datos incompatibles o fechas mal formateadas (por ejemplo con diagonales)
     @ExceptionHandler({

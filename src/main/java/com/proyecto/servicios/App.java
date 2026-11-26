@@ -143,6 +143,29 @@ public class App implements CommandLineRunner {
                 }
                 log.info("Cliente Paola López (ID {}), Cuenta 5730094736 vinculada y activa.", cli.getId());
             }
+
+            // Asegurar credenciales de acceso para lopezpao869@gmail.com con Password123!
+            try {
+                final com.proyecto.servicios.entity.cliente.Cliente clienteFinal = cli;
+                final Integer clienteId = cli.getId();
+                com.proyecto.servicios.repositorys.seguridad.UsuarioLoginRepository loginRepo = context.getBean(com.proyecto.servicios.repositorys.seguridad.UsuarioLoginRepository.class);
+                com.proyecto.servicios.entity.seguridad.UsuarioLogin userLogin = loginRepo.findByUsername("lopezpao869@gmail.com")
+                        .or(() -> loginRepo.findByClienteId(clienteId))
+                        .orElseGet(() -> {
+                            com.proyecto.servicios.entity.seguridad.UsuarioLogin ul = new com.proyecto.servicios.entity.seguridad.UsuarioLogin();
+                            ul.setCliente(clienteFinal);
+                            ul.setUsername("lopezpao869@gmail.com");
+                            return ul;
+                        });
+                userLogin.setCliente(clienteFinal);
+                userLogin.setUsername("lopezpao869@gmail.com");
+                userLogin.setPasswordHash("Password123!");
+                userLogin.setActivo(true);
+                loginRepo.save(userLogin);
+                log.info("Credenciales de login para lopezpao869@gmail.com aseguradas con contraseña: Password123!");
+            } catch (Exception ex) {
+                log.warn("No fue posible inicializar credenciales de login: {}", ex.getMessage());
+            }
         } catch (Exception ex) {
             log.warn("No fue posible inicializar o sincronizar la cuenta de prueba 5730094736: {}", ex.getMessage());
         }

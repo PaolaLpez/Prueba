@@ -3,6 +3,7 @@ package com.proyecto.servicios.service;
 import com.proyecto.servicios.client.GestoPagoAuthClient;
 import com.proyecto.servicios.entity.gestopago.GestoPagoToken;
 import com.proyecto.servicios.model.dto.gestopago.GestoPagoTxResponse;
+import com.proyecto.servicios.model.gestopago.GestoPagoAuthResponse;
 import com.proyecto.servicios.service.Impl.GestoPagoTxServiceImpl;
 import feign.FeignException;
 import feign.Request;
@@ -169,5 +170,47 @@ class GestoPagoTxServiceImplTest {
         assertFalse(response.isTimeout());
         assertEquals(105, response.getCodigo());
         assertTrue(response.getMensaje().contains("inválido"));
+    }
+
+    @Test
+    @DisplayName("Debe fallar con 401 si no hay token disponible")
+    void testTokenNoDisponible() {
+        when(gestoPagoTokenService.obtenerTokenActivo(anyInt(), anyString())).thenReturn(Optional.empty());
+        when(gestoPagoAuthClient.authenticate(anyString(), anyInt(), anyString(), anyString())).thenReturn(null);
+
+        GestoPagoTxResponse response = gestoPagoTxService.enviarTransaccion(
+                1, 1, new BigDecimal("250.00"), "REF-PAOLA-005", "1234567890", "1"
+        );
+
+        assertNotNull(response);
+        assertEquals(401, response.getCodigo());
+    }
+
+    @Test
+    @DisplayName("Debe manejar respuesta XML nula o vacía")
+    void testRespuestaXmlVacia() {
+        when(gestoPagoAuthClient.sendTx(anyString(), anyInt(), anyString(), anyInt(), anyInt(), any(), anyString(), any(), any()))
+                .thenReturn("");
+
+        GestoPagoTxResponse response = gestoPagoTxService.enviarTransaccion(
+                1, 1, new BigDecimal("250.00"), "REF-PAOLA-006", "1234567890", "1"
+        );
+
+        assertNotNull(response);
+        assertEquals(99, response.getCodigo());
+    }
+
+    @Test
+    @DisplayName("Debe manejar excepción genérica en sendTx")
+    void testExcepcionGenerica() {
+        when(gestoPagoAuthClient.sendTx(anyString(), anyInt(), anyString(), anyInt(), anyInt(), any(), anyString(), any(), any()))
+                .thenThrow(new RuntimeException("Error inesperado en red"));
+
+        GestoPagoTxResponse response = gestoPagoTxService.enviarTransaccion(
+                1, 1, new BigDecimal("250.00"), "REF-PAOLA-007", "1234567890", "1"
+        );
+
+        assertNotNull(response);
+        assertEquals(500, response.getCodigo());
     }
 }

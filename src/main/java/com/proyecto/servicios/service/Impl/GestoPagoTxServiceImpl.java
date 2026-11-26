@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import javax.xml.XMLConstants;
@@ -164,74 +166,157 @@ public class GestoPagoTxServiceImpl implements GestoPagoTxService {
         }
 
         try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            factory.setXIncludeAware(false);
-            factory.setExpandEntityReferences(false);
+            Document document = null;
+            try {
+                DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+                factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+                factory.setXIncludeAware(false);
+                factory.setExpandEntityReferences(false);
+                document = factory.newDocumentBuilder().parse(
+                        new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+            } catch (Exception exDoc) {
+                log.warn(">> [GESTOPAGO] XML no estructurado estrictamente, se usará extractor por expresiones regulares: {}", exDoc.getMessage());
+            }
 
-            Document document = factory.newDocumentBuilder().parse(
-                    new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
-
-            String valid = obtenerTag(document, "VALID", "1");
-            String codigoStr = obtenerTag(document, "CODIGO", "0");
-            String status = obtenerTag(document, "STATUS", valid);
-            String mensaje = obtenerTag(document, "MENSAJE", "Transacción procesada");
-            String folio = obtenerTag(document, "FOLIO", "GP-" + System.currentTimeMillis());
-            String autorizacion = obtenerTag(document, "AUTORIZACION", "AUTH-" + System.currentTimeMillis() % 1000000);
-            String fecha = obtenerTag(document, "FECHA", LocalDateTime.now().toLocalDate().toString());
-            String hora = obtenerTag(document, "HORA", LocalDateTime.now().toLocalTime().toString());
+            // Extracción insensible a mayúsculas/minúsculas y compatible con atributos y elementos
+            String valid = buscarValorXml(document, xml, "VALID", "valid", "valido");
+            String codigoStr = buscarValorXml(document, xml, "CODIGO", "codigo", "code", "CODE", "error", "ERROR", "codigoError");
+            String status = buscarValorXml(document, xml, "STATUS", "status", "estatus", "estado");
+            String mensaje = buscarValorXml(document, xml, "MENSAJE", "mensaje", "message", "MESSAGE", "descripcion", "DESCRIPCION", "motivo", "detalle");
+            String folio = buscarValorXml(document, xml, "FOLIO", "folio", "Folio", "idTransaccion", "folioProveedor", "FOLIO_PROVEEDOR", "folioGestoPago", "noTransaccion", "transaccion");
+            String autorizacion = buscarValorXml(document, xml, "AUTORIZACION", "autorizacion", "Autorizacion", "auth", "AUTH", "noAutorizacion", "numeroAutorizacion");
+            String fecha = buscarValorXml(document, xml, "FECHA", "fecha", "date");
+            String hora = buscarValorXml(document, xml, "HORA", "hora", "time");
 
             int codigoInt = 0;
-            try {
-                codigoInt = Integer.parseInt(codigoStr);
-            } catch (Exception ignored) {}
+            if (codigoStr != null && !codigoStr.isBlank()) {
+                try {
+                    codigoInt = Integer.parseInt(codigoStr.trim());
+                } catch (Exception ignored) {
+                    codigoInt = -1;
+                }
+            }
 
-            boolean esAprobada = (codigoInt == 0) && ("1".equals(valid) || "1".equalsIgnoreCase(status) || "EXITOSA".equalsIgnoreCase(status));
+            // Detección rigurosa de errores y rechazos (evita falsos positivos como el error -103 del carrier)
+            boolean tieneErrorExplicito = false;
+            if (codigoInt != 0) {
+                tieneErrorExplicito = true;
+            }
+            if ("0".equals(valid) || "false".equalsIgnoreCase(valid) || "0".equals(status) || "ERROR".equalsIgnoreCase(status) || "RECHAZADA".equalsIgnoreCase(status) || "RECHAZADO".equalsIgnoreCase(status)) {
+                tieneErrorExplicito = true;
+            }
+            // Si la autorización o mensaje contiene códigos negativos o fallos de carrier (ej. "-103Por el momento el carrier no responde...")
+            if (autorizacion != null && (autorizacion.startsWith("-") || autorizacion.toLowerCase().contains("carrier") || autorizacion.toLowerCase().contains("error") || autorizacion.toLowerCase().contains("no responde"))) {
+                tieneErrorExplicito = true;
+                if (mensaje == null || mensaje.isBlank() || "Transacción procesada".equalsIgnoreCase(mensaje)) {
+                    mensaje = autorizacion.trim();
+                }
+            }
+            if (mensaje != null && (mensaje.toLowerCase().contains("carrier no responde")
+                    || mensaje.toLowerCase().contains("saldo insuficiente")
+                    || mensaje.toLowerCase().contains("rechazad")
+                    || mensaje.toLowerCase().contains("no disponible")
+                    || mensaje.toLowerCase().contains("no responde")
+                    || mensaje.toLowerCase().contains("favor de intentar"))) {
+                tieneErrorExplicito = true;
+            }
 
-            log.info(">> [GESTOPAGO PARSED] Aprobada={}, Folio={}, Auth={}, Msg={}",
-                    esAprobada, folio, autorizacion, mensaje);
+            boolean esAprobada = !tieneErrorExplicito
+                    && (codigoInt == 0)
+                    && ("1".equals(valid) || "true".equalsIgnoreCase(valid) || "EXITOSA".equalsIgnoreCase(status) || "APROBADA".equalsIgnoreCase(status) || (valid == null && status == null));
+
+            if (!esAprobada && (mensaje == null || mensaje.isBlank() || "Transacción procesada".equalsIgnoreCase(mensaje))) {
+                mensaje = (codigoInt != 0)
+                        ? "Transacción rechazada por el proveedor (Código " + codigoInt + ")"
+                        : "Operación rechazada por el proveedor GestoPago";
+            }
+
+            log.info(">> [GESTOPAGO PARSED REAL] Aprobada={}, Codigo={}, Folio={}, Auth={}, Msg={}",
+                    esAprobada, codigoInt, folio, autorizacion, mensaje);
 
             return GestoPagoTxResponse.builder()
                     .exitoso(esAprobada)
                     .timeout(false)
                     .codigo(codigoInt)
-                    .status(status)
+                    .status(esAprobada ? "EXITOSA" : "RECHAZADA")
                     .mensaje(mensaje)
-                    .folio(folio)
-                    .autorizacion(autorizacion)
-                    .fecha(fecha)
-                    .hora(hora)
+                    .folio(folio) // Folio real retornado por GestoPago (null si el proveedor no lo generó)
+                    .autorizacion(esAprobada ? autorizacion : (autorizacion != null && !autorizacion.startsWith("-") ? autorizacion : "RECHAZADA"))
+                    .fecha(fecha != null ? fecha : LocalDateTime.now().toLocalDate().toString())
+                    .hora(hora != null ? hora : LocalDateTime.now().toLocalTime().toString())
                     .rawXml(xml)
                     .fechaOperacion(LocalDateTime.now())
                     .build();
 
         } catch (Exception ex) {
             log.error(">> [GESTOPAGO XML ERROR] Error al parsear XML de respuesta: {}", ex.getMessage());
-            // Si la respuesta contenía confirmación en texto plano
-            boolean pareceExitosa = xml.toLowerCase().contains("exitosa") || xml.toLowerCase().contains("éxito");
             return GestoPagoTxResponse.builder()
-                    .exitoso(pareceExitosa)
+                    .exitoso(false)
                     .timeout(false)
-                    .codigo(pareceExitosa ? 0 : 500)
-                    .mensaje(pareceExitosa ? "Transacción aprobada por el proveedor" : "Respuesta con formato no reconocido")
+                    .codigo(500)
+                    .mensaje("Respuesta con formato no reconocido del proveedor GestoPago: " + ex.getMessage())
                     .rawXml(xml)
                     .fechaOperacion(LocalDateTime.now())
                     .build();
         }
     }
 
-    private String obtenerTag(Document doc, String tagName, String defaultValue) {
-        NodeList nodes = doc.getElementsByTagName(tagName);
-        if (nodes != null && nodes.getLength() > 0 && nodes.item(0) != null) {
-            String text = nodes.item(0).getTextContent();
-            if (text != null && !text.isBlank()) {
-                return text.trim();
+    private String buscarValorXml(Document doc, String xml, String... tagNames) {
+        // 1. Búsqueda en elementos y atributos XML si el documento fue parseado
+        if (doc != null) {
+            NodeList allNodes = doc.getElementsByTagName("*");
+            for (int i = 0; i < allNodes.getLength(); i++) {
+                Node node = allNodes.item(i);
+                for (String tag : tagNames) {
+                    if (node.getNodeName().equalsIgnoreCase(tag)) {
+                        String text = node.getTextContent();
+                        if (text != null && !text.isBlank()) {
+                            return text.trim();
+                        }
+                    }
+                    if (node instanceof Element el) {
+                        if (el.hasAttribute(tag)) {
+                            String val = el.getAttribute(tag);
+                            if (val != null && !val.isBlank()) return val.trim();
+                        }
+                        if (el.hasAttribute(tag.toLowerCase())) {
+                            String val = el.getAttribute(tag.toLowerCase());
+                            if (val != null && !val.isBlank()) return val.trim();
+                        }
+                    }
+                }
             }
         }
-        return defaultValue;
+
+        // 2. Respaldo por expresiones regulares sobre el texto XML en crudo
+        if (xml != null && !xml.isBlank()) {
+            for (String tag : tagNames) {
+                // Formato <tag>valor</tag>
+                java.util.regex.Matcher mTag = java.util.regex.Pattern.compile(
+                        "<(?i:" + java.util.regex.Pattern.quote(tag) + ")[^>]*>([^<]+)</(?i:" + java.util.regex.Pattern.quote(tag) + ")>",
+                        java.util.regex.Pattern.CASE_INSENSITIVE
+                ).matcher(xml);
+                if (mTag.find()) {
+                    String val = mTag.group(1).trim();
+                    if (!val.isBlank()) return val;
+                }
+
+                // Formato atributo tag="valor"
+                java.util.regex.Matcher mAttr = java.util.regex.Pattern.compile(
+                        "(?i:" + java.util.regex.Pattern.quote(tag) + ")\\s*=\\s*[\"']([^\"']+)[\"']",
+                        java.util.regex.Pattern.CASE_INSENSITIVE
+                ).matcher(xml);
+                if (mAttr.find()) {
+                    String val = mAttr.group(1).trim();
+                    if (!val.isBlank()) return val;
+                }
+            }
+        }
+
+        return null;
     }
 
     private String enmascararToken(String token) {

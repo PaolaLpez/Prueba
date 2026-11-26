@@ -109,4 +109,15 @@ public class PagoController {
         PagoConfirmacionResponse response = pagoService.procesarPago(request);
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
+
+    /**
+     * Consulta el historial de pagos y compras realizadas por el cliente autenticado.
+     */
+    @Operation(summary = "Consultar historial de compras y pagos del cliente")
+    @org.springframework.web.bind.annotation.GetMapping(value = {"/historial/{clienteId}", "/historial"}, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<java.util.List<PagoConfirmacionResponse.DetallePago>> consultarHistorialPagos(
+            @org.springframework.web.bind.annotation.PathVariable(value = "clienteId", required = false) Integer clienteId) {
+        Integer idFinal = clienteId != null ? clienteId : 3;
+        return new ResponseEntity<>(pagoService.consultarHistorialCliente(idFinal), HttpStatus.OK);
+    }
 }

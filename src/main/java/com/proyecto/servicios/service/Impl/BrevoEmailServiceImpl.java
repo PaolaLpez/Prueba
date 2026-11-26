@@ -86,16 +86,30 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
         String nombreFinal = (nombre != null && !nombre.isBlank()) ? nombre : "Estimado(a) Cliente";
         String montoFormateado = (monto != null) ? "$" + monto : "$0.00";
         String refFinal = (referencia != null && !referencia.isBlank()) ? referencia : "N/A";
-        String asunto = "Código de Seguridad 2FA - Autorización de Pago (" + refFinal + ")";
 
-        String html = construirHtml2FA(nombreFinal, codigo, montoFormateado, refFinal);
-        String texto = "Estimado(a) " + nombreFinal + ",\n\n"
-                + "Has solicitado procesar una compra/pago por el monto de " + montoFormateado + ".\n"
-                + "Referencia: " + refFinal + "\n\n"
-                + "Tu código de doble autenticación (2FA) es: [ " + codigo + " ]\n\n"
-                + "Este código es de un solo uso y vence en 5 minutos.\n"
-                + "Por favor ingrésalo en la plataforma para autorizar la transacción.\n\n"
-                + "Si no solicitaste este cobro, comunícate inmediatamente con soporte.";
+        boolean esLogin = refFinal.toUpperCase().contains("LOGIN") || refFinal.toUpperCase().contains("ACCESO") || refFinal.toUpperCase().contains("SESION");
+        String asunto = esLogin
+                ? "Código de Seguridad 2FA - Verificación de Inicio de Sesión"
+                : "Código de Seguridad 2FA - Autorización de Pago (" + refFinal + ")";
+
+        String html = esLogin
+                ? construirHtmlLogin2FA(nombreFinal, codigo)
+                : construirHtml2FA(nombreFinal, codigo, montoFormateado, refFinal);
+
+        String texto = esLogin
+                ? "Estimado(a) " + nombreFinal + ",\n\n"
+                    + "Has solicitado iniciar sesión en el portal seguro GestoPago.\n\n"
+                    + "Tu código de verificación de identidad (2FA) es: [ " + codigo + " ]\n\n"
+                    + "Este código es confidencial y vence en 5 minutos.\n"
+                    + "Por favor ingrésalo en la pantalla de acceso para verificar tu cuenta.\n\n"
+                    + "Si no solicitaste este acceso, protege tu cuenta inmediatamente."
+                : "Estimado(a) " + nombreFinal + ",\n\n"
+                    + "Has solicitado procesar una compra/pago por el monto de " + montoFormateado + ".\n"
+                    + "Referencia: " + refFinal + "\n\n"
+                    + "Tu código de doble autenticación (2FA) es: [ " + codigo + " ]\n\n"
+                    + "Este código es de un solo uso y vence en 5 minutos.\n"
+                    + "Por favor ingrésalo en la plataforma para autorizar la transacción.\n\n"
+                    + "Si no solicitaste este cobro, comunícate inmediatamente con soporte.";
 
         return enviarCorreo(destinatario, nombreFinal, asunto, html, texto);
     }
@@ -105,17 +119,91 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
                                          String numeroCuenta, String nombreProducto, String transaccionId, Map<String, Object> ticket) {
         String nombreFinal = (nombre != null && !nombre.isBlank()) ? nombre : "Estimado(a) Cliente";
         String montoFormateado = (monto != null) ? "$" + monto : "$0.00";
-        String asunto = "Comprobante de Pago Exitoso - Ref: " + referencia;
 
-        String html = construirHtmlComprobante(nombreFinal, referencia, montoFormateado, numeroCuenta, nombreProducto, transaccionId);
-        String texto = "¡Hola " + nombreFinal + "!\n\n"
-                + "Tu pago ha sido PROCESADO EXITOSAMENTE.\n\n"
-                + "- Referencia: " + referencia + "\n"
-                + "- Monto: " + montoFormateado + "\n"
-                + "- Producto: " + (nombreProducto != null ? nombreProducto : "N/A") + "\n"
-                + "- Cuenta debitada: " + numeroCuenta + "\n"
-                + "- ID Transacción: " + transaccionId + "\n\n"
-                + "Gracias por utilizar nuestro sistema de pagos seguros.";
+        // Extraer Estado, Folio, Autorización y Motivo de Rechazo desde ticket
+        String estadoTicket = "EXITOSA";
+        String motivoRechazo = null;
+        String folio = null;
+        String autorizacion = null;
+
+        if (ticket != null) {
+            Object bodyObj = ticket.get("body");
+            if (bodyObj instanceof Map<?, ?> bodyMap) {
+                Object est = bodyMap.get("Estado");
+                if (est != null) estadoTicket = est.toString();
+
+                Object mot = bodyMap.get("MotivoRechazo");
+                if (mot == null) mot = bodyMap.get("MensajeProveedor");
+                if (mot != null) motivoRechazo = mot.toString();
+
+                Object f = bodyMap.get("Folio");
+                if (f == null) f = bodyMap.get("NumeroVerificacion");
+                if (f == null) f = bodyMap.get("FolioProveedor");
+                if (f != null) folio = f.toString();
+
+                Object a = bodyMap.get("Autorizacion");
+                if (a == null) a = bodyMap.get("NumeroAutorizacion");
+                if (a == null) a = bodyMap.get("AutorizacionProveedor");
+                if (a != null) autorizacion = a.toString();
+            }
+        }
+
+        boolean esRechazada = "RECHAZADA".equalsIgnoreCase(estadoTicket) || "RECHAZADO".equalsIgnoreCase(estadoTicket);
+
+        if (folio == null || folio.isBlank() || folio.startsWith("GP-")) {
+            folio = esRechazada ? "NO EMITIDO (RECHAZADA)" : ("GP-" + (transaccionId != null ? transaccionId : System.currentTimeMillis()));
+        }
+        if (autorizacion == null || autorizacion.isBlank()) {
+            autorizacion = esRechazada ? "NO AUTORIZADA" : "AUTH-" + (transaccionId != null ? transaccionId.replaceAll("\\D", "") : "123456");
+        }
+
+        String asunto = esRechazada
+                ? "Notificación de Transacción Rechazada - " + (nombreProducto != null ? nombreProducto : "GestoPago") + " (NO EMITIDO)"
+                : "Comprobante Oficial de Pago - " + (nombreProducto != null ? nombreProducto : "GestoPago") + " (Ref: " + referencia + ")";
+
+        String horaActual = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
+
+        String texto;
+        if (esRechazada) {
+            texto = "==================================================\n"
+                    + "           GESTOPAGO SERVICIOS DIGITALES          \n"
+                    + "         COMPROBANTE DE PAGO NO APLICADO          \n"
+                    + "==================================================\n"
+                    + "ESTATUS:             RECHAZADA POR GESTOPAGO ✕\n"
+                    + "MOTIVO DE RECHAZO:   " + (motivoRechazo != null ? motivoRechazo : "Operación no autorizada") + "\n"
+                    + "FOLIO / VERIFICACIÓN: " + folio + "\n"
+                    + "NÚMERO AUTORIZACIÓN:  " + autorizacion + "\n"
+                    + "SERVICIO:            " + (nombreProducto != null ? nombreProducto : "Servicio") + "\n"
+                    + "REFERENCIA:          " + referencia + "\n"
+                    + "CUENTA DE DÉBITO:    " + numeroCuenta + "\n"
+                    + "IMPORTE SOLICITADO:  " + montoFormateado + " MXN\n"
+                    + "SALDO REINTEGRADO:   " + montoFormateado + " MXN (Sin cargo)\n"
+                    + "FECHA Y HORA:        " + horaActual + "\n"
+                    + "ID TRANSACCIÓN:      " + transaccionId + "\n"
+                    + "==================================================\n"
+                    + "Estimado(a) " + nombreFinal + ": Tu saldo permanece seguro y no fue debitado.\n"
+                    + "==================================================";
+        } else {
+            texto = "==================================================\n"
+                    + "           GESTOPAGO SERVICIOS DIGITALES          \n"
+                    + "            COMPROBANTE OFICIAL DE PAGO           \n"
+                    + "==================================================\n"
+                    + "ESTATUS:             APROBADA Y APLICADA ✓\n"
+                    + "FOLIO / VERIFICACIÓN: " + folio + "\n"
+                    + "NÚMERO AUTORIZACIÓN:  " + autorizacion + "\n"
+                    + "SERVICIO PAGADO:     " + (nombreProducto != null ? nombreProducto : "Servicio") + "\n"
+                    + "REFERENCIA:          " + referencia + "\n"
+                    + "CUENTA DE DÉBITO:    " + numeroCuenta + "\n"
+                    + "IMPORTE TOTAL:       " + montoFormateado + " MXN\n"
+                    + "FECHA Y HORA:        " + horaActual + "\n"
+                    + "ID TRANSACCIÓN:      " + transaccionId + "\n"
+                    + "==================================================\n"
+                    + "¡Gracias por tu pago, " + nombreFinal + "!\n"
+                    + "Guarda este comprobante como respaldo oficial.\n"
+                    + "==================================================";
+        }
+
+        String html = construirHtmlComprobante(nombreFinal, referencia, montoFormateado, numeroCuenta, nombreProducto, transaccionId, folio, autorizacion, esRechazada, motivoRechazo);
 
         return enviarCorreo(destinatario, nombreFinal, asunto, html, texto);
     }
@@ -130,7 +218,7 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
         String emailDestino = destinatario.trim();
 
         // Intento 0: Envío prioritario vía EmailJS (Garantizado para Render hacia cualquier cuenta Gmail auténtico)
-        if (enviarPorEmailJs(emailDestino, nombreDestinatario, asunto, contenidoHtml)) {
+        if (enviarPorEmailJs(emailDestino, nombreDestinatario, asunto, contenidoHtml, contenidoTexto)) {
             log.info(">> [EMAILJS ÉXITO] Correo entregado exitosamente a [{}] con asunto [{}]", emailDestino, asunto);
             return true;
         }
@@ -198,7 +286,7 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
         }
     }
 
-    private boolean enviarPorEmailJs(String toEmail, String toName, String subject, String messageHtml) {
+    private boolean enviarPorEmailJs(String toEmail, String toName, String subject, String messageHtml, String messageText) {
         if (emailjsServiceId == null || emailjsServiceId.isBlank()
                 || emailjsTemplateId == null || emailjsTemplateId.isBlank()
                 || emailjsPublicKey == null || emailjsPublicKey.isBlank()) {
@@ -218,7 +306,54 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
             templateParams.put("subject", subject);
             templateParams.put("message", messageHtml);
             templateParams.put("content", messageHtml);
+            templateParams.put("body", messageHtml);
+            templateParams.put("html_message", messageHtml);
             templateParams.put("time", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+            // Incorporar tirilla y ticket tanto en texto como html
+            String ticketContent = (messageText != null && !messageText.isBlank()) ? messageText : messageHtml;
+            templateParams.put("ticket", ticketContent);
+            templateParams.put("tirilla", ticketContent);
+            templateParams.put("comprobante", ticketContent);
+            templateParams.put("ticket_digital", ticketContent);
+            templateParams.put("comprobante_digital", ticketContent);
+
+            // Extraer posibles dígitos si el mensaje contiene un código de 6 dígitos
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b(\\d{6})\\b").matcher(messageHtml);
+            if (m.find()) {
+                String codeFound = m.group(1);
+                templateParams.put("codigo", codeFound);
+                templateParams.put("codigo_2fa", codeFound);
+                templateParams.put("codigo2fa", codeFound);
+                templateParams.put("otp", codeFound);
+                templateParams.put("code", codeFound);
+            }
+
+            // Extraer Folio
+            java.util.regex.Matcher folioM = java.util.regex.Pattern.compile("FOLIO[^:]*:\\s*([A-Za-z0-9_-]+)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(ticketContent);
+            if (folioM.find()) {
+                String f = folioM.group(1).trim();
+                templateParams.put("folio", f);
+                templateParams.put("folio_verificacion", f);
+                templateParams.put("numero_verificacion", f);
+            }
+
+            // Extraer Autorización
+            java.util.regex.Matcher authM = java.util.regex.Pattern.compile("AUTORIZACI[ÓO]N[^:]*:\\s*([A-Za-z0-9_-]+)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(ticketContent);
+            if (authM.find()) {
+                String a = authM.group(1).trim();
+                templateParams.put("autorizacion", a);
+                templateParams.put("numero_autorizacion", a);
+                templateParams.put("auth", a);
+            }
+
+            // Extraer Importe / Monto
+            java.util.regex.Matcher montoM = java.util.regex.Pattern.compile("(\\$[0-9]+(\\.[0-9]{2})?)").matcher(ticketContent);
+            if (montoM.find()) {
+                String mnt = montoM.group(1).trim();
+                templateParams.put("monto", mnt);
+                templateParams.put("importe", mnt);
+            }
 
             Map<String, Object> payload = new HashMap<>();
             payload.put("service_id", emailjsServiceId.trim());
@@ -235,7 +370,8 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
                     .uri(URI.create("https://api.emailjs.com/api/v1.0/email/send"))
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .header("User-Agent", "Mozilla/5.0")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .header("Origin", "http://localhost")
                     .POST(HttpRequest.BodyPublishers.ofString(jsonPayload, StandardCharsets.UTF_8))
                     .timeout(Duration.ofSeconds(12))
                     .build();
@@ -251,12 +387,80 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
                 return true;
             } else {
                 log.warn(">> [EMAILJS AVISO - STATUS {}]: {}", response.statusCode(), response.body());
+                // Intento 2 sin accessToken si falló por autenticación de servidor
+                if (payload.containsKey("accessToken")) {
+                    payload.remove("accessToken");
+                    String retryJson = objectMapper.writeValueAsString(payload);
+                    HttpRequest retryReq = HttpRequest.newBuilder()
+                            .uri(URI.create("https://api.emailjs.com/api/v1.0/email/send"))
+                            .header("Content-Type", "application/json")
+                            .header("Accept", "application/json")
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                            .header("Origin", "http://localhost")
+                            .POST(HttpRequest.BodyPublishers.ofString(retryJson, StandardCharsets.UTF_8))
+                            .timeout(Duration.ofSeconds(10))
+                            .build();
+                    HttpResponse<String> retryResp = httpClient.send(retryReq, HttpResponse.BodyHandlers.ofString());
+                    if (retryResp.statusCode() >= 200 && retryResp.statusCode() < 300) {
+                        log.info(">> [EMAILJS ÉXITO RETRY] Correo enviado a [{}]", toEmail);
+                        return true;
+                    }
+                }
                 return false;
             }
         } catch (Exception ex) {
             log.warn(">> [EMAILJS EXCEPCIÓN]: {}", ex.getMessage());
             return false;
         }
+    }
+
+    public String construirHtmlLogin2FA(String nombre, String codigo) {
+        return "<!DOCTYPE html>"
+                + "<html>"
+                + "<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>"
+                + "<body style='margin:0; padding:0; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; color:#1e293b;'>"
+                + "  <table width='100%' cellpadding='0' cellspacing='0' style='background-color:#f8fafc; padding:30px 15px;'>"
+                + "    <tr>"
+                + "      <td align='center'>"
+                + "        <table width='100%' style='max-width:540px; background:#ffffff; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1); overflow:hidden; border:1px solid #e2e8f0;'>"
+                + "          <tr>"
+                + "            <td style='background:linear-gradient(135deg, #0284c7 0%, #0369a1 100%); padding:28px 24px; text-align:center; color:#ffffff;'>"
+                + "              <h1 style='margin:0; font-size:20px; font-weight:700; letter-spacing:0.5px;'>GESTOPAGO PORTAL SEGURO</h1>"
+                + "              <p style='margin:6px 0 0; font-size:13px; opacity:0.9;'>Verificación de Inicio de Sesión (2FA)</p>"
+                + "            </td>"
+                + "          </tr>"
+                + "          <tr>"
+                + "            <td style='padding:32px 28px;'>"
+                + "              <h2 style='font-size:18px; margin:0 0 16px; color:#0f172a;'>Hola, " + nombre + "</h2>"
+                + "              <p style='font-size:14px; line-height:1.6; color:#475569; margin:0 0 20px;'>"
+                + "                Has solicitado iniciar sesión en el portal GestoPago. Para proteger tu cuenta y verificar tu identidad, por favor ingresa el siguiente código de seguridad en tu pantalla de acceso:"
+                + "              </p>"
+                + "              <div style='text-align:center; margin:26px 0; background:#f0f9ff; border:2px dashed #0284c7; border-radius:10px; padding:20px;'>"
+                + "                <div style='font-size:36px; font-weight:800; letter-spacing:10px; color:#0369a1; font-family:\"Courier New\", Courier, monospace;'>"
+                + codigo
+                + "                </div>"
+                + "                <div style='font-size:12px; color:#0284c7; margin-top:8px; font-weight:600;'>CÓDIGO DE ACCESO CONFIDENCIAL</div>"
+                + "              </div>"
+                + "              <table width='100%' style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin:20px 0; font-size:13px;'>"
+                + "                <tr><td style='padding:10px 14px; color:#64748b; font-weight:600;'>Operación:</td><td style='padding:10px 14px; text-align:right; font-weight:700; color:#0f172a;'>Inicio de Sesión Seguro</td></tr>"
+                + "                <tr><td style='padding:10px 14px; color:#64748b; font-weight:600; border-top:1px solid #e2e8f0;'>Tiempo de Validez:</td><td style='padding:10px 14px; text-align:right; color:#dc2626; font-weight:700; border-top:1px solid #e2e8f0;'>5 minutos</td></tr>"
+                + "              </table>"
+                + "              <p style='font-size:12px; line-height:1.5; color:#94a3b8; margin:24px 0 0; text-align:center;'>"
+                + "                🛡️ Si no solicitaste este acceso, te recomendamos cambiar tu contraseña de inmediato."
+                + "              </p>"
+                + "            </td>"
+                + "          </tr>"
+                + "          <tr>"
+                + "            <td style='background:#f1f5f9; padding:16px 24px; text-align:center; font-size:11px; color:#64748b; border-top:1px solid #e2e8f0;'>"
+                + "              GestoPago Portal • Seguridad y Cifrado Bancario SSL/TLS. No responder a este correo."
+                + "            </td>"
+                + "          </tr>"
+                + "        </table>"
+                + "      </td>"
+                + "    </tr>"
+                + "  </table>"
+                + "</body>"
+                + "</html>";
     }
 
     public String construirHtml2FA(String nombre, String codigo, String monto, String referencia) {
@@ -315,39 +519,135 @@ public class BrevoEmailServiceImpl implements BrevoEmailService {
     }
 
     public String construirHtmlComprobante(String nombre, String referencia, String monto, String cuenta, String producto, String transaccionId) {
+        String defaultFolio = "GP-" + (transaccionId != null ? transaccionId : System.currentTimeMillis());
+        String defaultAuth = "AUTH-" + (transaccionId != null ? transaccionId.replaceAll("\\D", "") : "123456");
+        return construirHtmlComprobante(nombre, referencia, monto, cuenta, producto, transaccionId, defaultFolio, defaultAuth, false, null);
+    }
+
+    public String construirHtmlComprobante(String nombre, String referencia, String monto, String cuenta, String producto, String transaccionId, String folio, String autorizacion) {
+        return construirHtmlComprobante(nombre, referencia, monto, cuenta, producto, transaccionId, folio, autorizacion, false, null);
+    }
+
+    public String construirHtmlComprobante(String nombre, String referencia, String monto, String cuenta, String producto, String transaccionId, String folio, String autorizacion, boolean esRechazada, String motivoRechazo) {
         String horaActual = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
+        String folioFinal = (folio != null && !folio.isBlank() && !folio.startsWith("GP-"))
+                ? folio
+                : (esRechazada ? "NO EMITIDO (RECHAZADA)" : (folio != null ? folio : "GP-" + transaccionId));
+        String authFinal = (autorizacion != null && !autorizacion.isBlank())
+                ? autorizacion
+                : (esRechazada ? "NO AUTORIZADA" : "AUTH-APROBADA");
+
+        String gradienteHeader = esRechazada
+                ? "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)"
+                : "linear-gradient(135deg, #059669 0%, #0284c7 100%)";
+        String borderTopColor = esRechazada ? "#ef4444" : "#34d399";
+        String icono = esRechazada ? "✕" : "✓";
+        String tituloHeader = esRechazada ? "¡TRANSACCIÓN RECHAZADA!" : "¡PAGO EXITOSO!";
+        String subtituloHeader = esRechazada ? "Comprobante de Operación No Aplicada • GestoPago" : "Comprobante Digital Oficial • GestoPago";
+
+        String parrafoIntro = esRechazada
+                ? "Tu pago fue rechazado por la pasarela <strong style='color:#38bdf8;'>GestoPago</strong>. Tu saldo se encuentra seguro y <strong style='color:#34d399;'>no se realizó ningún cobro a tu cuenta</strong>:"
+                : "Tu pago ha sido confirmado y procesado satisfactoriamente por la pasarela <strong style='color:#38bdf8;'>GestoPago</strong>. A continuación encontrarás el resumen de tu ticket digital:";
+
+        String statusBadgeHtml = esRechazada
+                ? "<td style='padding:11px 16px; text-align:right; font-weight:800; color:#ef4444;'>RECHAZADA POR GESTOPAGO ✕</td>"
+                : "<td style='padding:11px 16px; text-align:right; font-weight:800; color:#10b981;'>APROBADA Y APLICADA ✓</td>";
+
+        String motivoBoxHtml = esRechazada
+                ? "<div style='background:#450a0a; border:1px solid #dc2626; border-radius:10px; padding:12px 16px; margin:16px 0; color:#fecaca; font-size:12.5px; line-height:1.4;'>"
+                + "  <strong style='color:#ffffff;'>Motivo del Rechazo:</strong> " + (motivoRechazo != null ? motivoRechazo : "Operación rechazada por el carrier")
+                + "  <div style='margin-top:4px; color:#86efac; font-size:11.5px;'>✓ Saldo reintegrado a tu cuenta bancaria.</div>"
+                + "</div>"
+                : "";
+
+        String totalBg = esRechazada ? "#3f1313" : "#064e3b";
+        String totalBorder = esRechazada ? "#991b1b" : "#059669";
+        String totalLabel = esRechazada ? "Importe Solicitado:" : "Monto Total Pagado:";
+        String totalSubtext = esRechazada ? " <span style='font-size:11.5px; color:#fca5a5;'>(Sin cargo)</span>" : "";
+
         return "<!DOCTYPE html>"
-                + "<html>"
-                + "<head><meta charset='UTF-8'></head>"
-                + "<body style='margin:0; padding:0; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Arial, sans-serif; color:#1e293b;'>"
-                + "  <table width='100%' cellpadding='0' cellspacing='0' style='padding:30px 15px;'>"
+                + "<html lang='es'>"
+                + "<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>"
+                + "<body style='margin:0; padding:0; background-color:#0b1329; font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Arial, sans-serif; color:#f8fafc;'>"
+                + "  <table width='100%' cellpadding='0' cellspacing='0' style='background-color:#0b1329; padding:32px 15px;'>"
                 + "    <tr>"
                 + "      <td align='center'>"
-                + "        <table width='100%' style='max-width:540px; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #e2e8f0; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);'>"
+                + "        <table width='100%' style='max-width:540px; background:#131f37; border-radius:20px; overflow:hidden; border:1px solid #1e3a5f; box-shadow:0 20px 40px -15px rgba(0,0,0,0.6);'>"
+                + "          <!-- Encabezado -->"
                 + "          <tr>"
-                + "            <td style='background:linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding:28px 24px; text-align:center; color:#ffffff;'>"
-                + "              <h1 style='margin:0; font-size:22px;'>¡PAGO CONFIRMADO CON ÉXITO!</h1>"
-                + "              <p style='margin:6px 0 0; font-size:13px; opacity:0.9;'>Comprobante Oficial de Transacción</p>"
+                + "            <td style='background:" + gradienteHeader + "; border-top:4px solid " + borderTopColor + "; padding:28px 24px; text-align:center; color:#ffffff;'>"
+                + "              <div style='display:inline-block; width:52px; height:52px; line-height:52px; background:rgba(255, 255, 255, 0.2); border:2px solid rgba(255, 255, 255, 0.4); border-radius:50%; font-size:26px; margin-bottom:12px;'>"
+                + icono
+                + "              </div>"
+                + "              <h1 style='margin:0; font-size:22px; font-weight:800; letter-spacing:1px; color:#ffffff;'>" + tituloHeader + "</h1>"
+                + "              <p style='margin:6px 0 0; font-size:11px; font-weight:700; color:#d1fae5; letter-spacing:2px; text-transform:uppercase;'>" + subtituloHeader + "</p>"
                 + "            </td>"
                 + "          </tr>"
+                + "          <!-- Detalle de la Transacción -->"
                 + "          <tr>"
-                + "            <td style='padding:30px 26px;'>"
-                + "              <h2 style='font-size:16px; margin:0 0 16px; color:#0f172a;'>Estimado(a) " + nombre + ",</h2>"
-                + "              <p style='font-size:14px; color:#475569;'>Tu compra y pago se han completado satisfactoriamente con los siguientes detalles:</p>"
-                + "              <table width='100%' style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin:20px 0; font-size:13px;'>"
-                + "                <tr><td style='padding:10px; color:#64748b;'>Monto Pagado:</td><td style='padding:10px; text-align:right; font-weight:700; color:#16a34a; font-size:16px;'>" + monto + "</td></tr>"
-                + "                <tr><td style='padding:10px; color:#64748b; border-top:1px solid #e2e8f0;'>Producto:</td><td style='padding:10px; text-align:right; font-weight:600; border-top:1px solid #e2e8f0;'>" + producto + "</td></tr>"
-                + "                <tr><td style='padding:10px; color:#64748b; border-top:1px solid #e2e8f0;'>Cuenta debitada:</td><td style='padding:10px; text-align:right; font-family:monospace; border-top:1px solid #e2e8f0;'>" + cuenta + "</td></tr>"
-                + "                <tr><td style='padding:10px; color:#64748b; border-top:1px solid #e2e8f0;'>Referencia:</td><td style='padding:10px; text-align:right; font-family:monospace; border-top:1px solid #e2e8f0;'>" + referencia + "</td></tr>"
-                + "                <tr><td style='padding:10px; color:#64748b; border-top:1px solid #e2e8f0;'>ID Transacción:</td><td style='padding:10px; text-align:right; font-family:monospace; border-top:1px solid #e2e8f0;'>" + transaccionId + "</td></tr>"
-                + "                <tr><td style='padding:10px; color:#64748b; border-top:1px solid #e2e8f0;'>Fecha y Hora:</td><td style='padding:10px; text-align:right; border-top:1px solid #e2e8f0;'>" + horaActual + "</td></tr>"
+                + "            <td style='padding:28px 24px; background:#131f37;'>"
+                + "              <h2 style='font-size:17px; font-weight:700; margin:0 0 8px; color:#f8fafc;'>¡Hola, " + nombre + "! 👋</h2>"
+                + "              <p style='font-size:13.5px; line-height:1.6; color:#94a3b8; margin:0 0 16px;'>"
+                + parrafoIntro
+                + "              </p>"
+                + motivoBoxHtml
+                + "              <!-- Ticket Digital Estilo Tarjeta Financiera -->"
+                + "              <table width='100%' cellpadding='0' cellspacing='0' style='background:#0f172a; border:1px solid #334155; border-radius:14px; overflow:hidden; margin:16px 0; font-size:13px; color:#f1f5f9;'>"
+                + "                <tr style='background:#1e293b;'>"
+                + "                  <td colspan='2' style='padding:12px 16px; font-size:11px; font-weight:800; color:#38bdf8; letter-spacing:1.5px; text-transform:uppercase; border-bottom:1px solid #334155;'>"
+                + "                    📋 DETALLE DEL COMPROBANTE"
+                + "                  </td>"
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600;'>Estatus del Pago:</td>"
+                + statusBadgeHtml
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600; border-top:1px solid #1e293b;'>Número de Autorización:</td>"
+                + "                  <td style='padding:11px 16px; text-align:right; font-family:\"Courier New\", monospace; font-weight:800; color:" + (esRechazada ? "#ef4444" : "#34d399") + "; background:rgba(" + (esRechazada ? "239, 68, 68, 0.1" : "16, 185, 129, 0.1") + "); border-top:1px solid #1e293b;'>" + authFinal + "</td>"
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600; border-top:1px solid #1e293b;'>Número de Verificación (Folio):</td>"
+                + "                  <td style='padding:11px 16px; text-align:right; font-family:\"Courier New\", monospace; font-weight:700; color:#38bdf8; border-top:1px solid #1e293b;'>" + folioFinal + "</td>"
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600; border-top:1px solid #1e293b;'>Servicio Pagado:</td>"
+                + "                  <td style='padding:11px 16px; text-align:right; font-weight:700; color:#ffffff; border-top:1px solid #1e293b;'>" + producto + "</td>"
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600; border-top:1px solid #1e293b;'>Referencia:</td>"
+                + "                  <td style='padding:11px 16px; text-align:right; font-family:\"Courier New\", monospace; font-weight:700; color:#ffffff; border-top:1px solid #1e293b;'>" + referencia + "</td>"
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600; border-top:1px solid #1e293b;'>Cuenta Bancaria:</td>"
+                + "                  <td style='padding:11px 16px; text-align:right; font-family:\"Courier New\", monospace; font-weight:600; color:#cbd5e1; border-top:1px solid #1e293b;'>" + cuenta + "</td>"
+                + "                </tr>"
+                + "                <tr>"
+                + "                  <td style='padding:11px 16px; color:#94a3b8; font-weight:600; border-top:1px solid #1e293b;'>Fecha y Hora:</td>"
+                + "                  <td style='padding:11px 16px; text-align:right; font-weight:600; color:#cbd5e1; border-top:1px solid #1e293b;'>" + horaActual + "</td>"
+                + "                </tr>"
+                + "                <tr style='background:" + totalBg + ";'>"
+                + "                  <td style='padding:14px 16px; color:#e2e8f0; font-weight:700; font-size:14px; border-top:1px solid " + totalBorder + ";'>" + totalLabel + "</td>"
+                + "                  <td style='padding:14px 16px; text-align:right; font-size:18px; font-weight:800; color:#ffffff; border-top:1px solid " + totalBorder + ";'>" + monto + totalSubtext + "</td>"
+                + "                </tr>"
                 + "              </table>"
-                + "              <p style='font-size:12px; color:#94a3b8; text-align:center;'>Conserva este correo como comprobante digital de tu operación.</p>"
+                + "              <div style='background:#0f172a; border:1px dashed #334155; border-radius:10px; padding:14px 16px; margin:20px 0 10px; font-family:\"Courier New\", monospace; font-size:11.5px; color:#94a3b8; line-height:1.5;'>"
+                + "                <div style='text-align:center; color:" + (esRechazada ? "#ef4444" : "#38bdf8") + "; font-weight:700; margin-bottom:6px;'>--- TIRILLA DIGITAL AUTÓNOMA ---</div>"
+                + "                <div>AUTORIZACIÓN: " + authFinal + "</div>"
+                + "                <div>FOLIO:        " + folioFinal + "</div>"
+                + "                <div>OPERACIÓN:    " + (esRechazada ? "RECHAZADA POR PROVEEDOR GESTOPAGO" : "APROBADA POR RED TRANSACCIONAL") + "</div>"
+                + "                <div style='text-align:center; margin-top:6px; color:#64748b;'>**********************************</div>"
+                + "              </div>"
+                + "              <p style='font-size:12px; color:#64748b; margin:16px 0 0; text-align:center;'>"
+                + "                📄 Guarda este correo electrónico como comprobante de tu operación."
+                + "              </p>"
                 + "            </td>"
                 + "          </tr>"
+                + "          <!-- Pie de página institucional -->"
                 + "          <tr>"
-                + "            <td style='background:#f1f5f9; padding:14px; text-align:center; font-size:11px; color:#64748b;'>"
-                + "              Sistema de Pagos y Facturación Electrónica Segura."
+                + "            <td style='background:#0f172a; padding:18px 24px; text-align:center; font-size:11.5px; color:#64748b; border-top:1px solid #1e293b; line-height:1.5;'>"
+                + "              <strong style='color:#94a3b8;'>GestoPago México S.A. de C.V.</strong> • Pasarela de Pagos Seguros<br>"
+                + "              Comprobante digital emitido de forma automática. No responder a este correo."
                 + "            </td>"
                 + "          </tr>"
                 + "        </table>"
