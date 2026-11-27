@@ -68,24 +68,30 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
 
     @Override
     public ProductoResponse obtenerProductos() {
-        // 1. Si hay productos en caché y es un catálogo sustancial (> 5 productos), retornar
+        // 1. Si hay productos en caché y es el catálogo completo (>= 900 productos), retornar
         List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos = leerCache();
-        if (productos != null && productos.size() > 5) {
+        if (productos != null && productos.size() >= 900) {
             return respuestaProductos(normalizarYAcomodarProductos(productos), "Lista de productos obtenida correctamente");
         }
 
-        // 2. Si la base de datos tiene el catálogo real (> 5 productos), usarlo y cachear
+        // 2. Si la base de datos tiene el catálogo completo (>= 900 productos), usarlo y cachear
         productos = leerBaseDeDatos();
-        if (productos != null && productos.size() > 5) {
+        if (productos != null && productos.size() >= 900) {
             productos = normalizarYAcomodarProductos(productos);
             guardarEnCache(productos);
             return respuestaProductos(productos, "Lista de productos obtenida correctamente");
         }
 
-        // 3. Si la base de datos solo tiene 1 o pocos productos dummy, consultar la API oficial de GestoPago
+        // 3. Si la base de datos tiene catálogo insuficiente (< 900), sembrar el catálogo de 910 productos
+        log.info("Catálogo en base de datos insuficiente ({} productos). Sembrando catálogo completo de 910 productos...",
+                productos != null ? productos.size() : 0);
+        List<com.proyecto.servicios.model.dto.producto.ProductoDto> semilla = cargarCatalogoSemilla();
+        if (semilla != null && semilla.size() >= 900) {
+            return respuestaProductos(normalizarYAcomodarProductos(semilla), "Lista de productos obtenida correctamente");
+        }
+
+        // 4. Si es necesario, intentar consultar la API externa de GestoPago
         try {
-            log.info("Catálogo local insuficiente ({} productos). Sincronizando catálogo completo desde API externa de GestoPago...",
-                    productos != null ? productos.size() : 0);
             List<com.proyecto.servicios.model.dto.producto.ProductoDto> productosApi = consultarApi();
             if (productosApi != null && !productosApi.isEmpty()) {
                 productosApi = normalizarYAcomodarProductos(productosApi);
@@ -95,10 +101,10 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                 return respuestaProductos(productosApi, "Lista de productos obtenida correctamente");
             }
         } catch (Exception ex) {
-            log.error("No fue posible consultar la API externa de productos en tiempo real: {}", ex.getMessage());
+            log.warn("No fue posible consultar la API externa de productos en tiempo real: {}", ex.getMessage());
         }
 
-        // 4. Si la API falló y tenemos productos locales de respaldo, devolverlos
+        // 5. Si hay productos locales de respaldo, devolverlos
         if (productos != null && !productos.isEmpty()) {
             return respuestaProductos(normalizarYAcomodarProductos(productos), "Lista de productos obtenida correctamente");
         }
@@ -108,7 +114,7 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
 
     @Override
     public ProductoResponse sincronizarCatalogo() {
-        log.info("Forzando sincronización inmediata del catálogo desde API oficial de GestoPago...");
+        log.info("Sincronizando catálogo completo desde API oficial de GestoPago o catálogo maestro...");
         try {
             List<com.proyecto.servicios.model.dto.producto.ProductoDto> productosApi = consultarApi();
             if (productosApi != null && !productosApi.isEmpty()) {
@@ -116,14 +122,41 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                 persistir(productosApi);
                 limpiarCache();
                 guardarEnCache(productosApi);
-                log.info("Catálogo forzado sincronizado con {} productos reales.", productosApi.size());
+                log.info("Catálogo sincronizado exitosamente con {} productos desde API externa.", productosApi.size());
                 return respuestaProductos(productosApi, "Catálogo sincronizado exitosamente desde GestoPago API");
             }
         } catch (Exception ex) {
-            log.error("Error al forzar sincronización de productos: {}", ex.getMessage());
-            throw ex;
+            log.warn("API externa no disponible o IP restringida ({}). Cargando catálogo maestro de 910 productos...", ex.getMessage());
         }
-        return obtenerProductos();
+
+        List<com.proyecto.servicios.model.dto.producto.ProductoDto> semilla = cargarCatalogoSemilla();
+        return respuestaProductos(normalizarYAcomodarProductos(semilla), "Catálogo de 910 productos cargado exitosamente");
+    }
+
+    @Override
+    public List<com.proyecto.servicios.model.dto.producto.ProductoDto> cargarCatalogoSemilla() {
+        try {
+            log.info("Cargando catálogo maestro de 910 productos desde /data/productos_catalog_910.json...");
+            java.io.InputStream is = getClass().getResourceAsStream("/data/productos_catalog_910.json");
+            if (is == null) {
+                log.warn("No se encontró el recurso /data/productos_catalog_910.json en el classpath");
+                return java.util.Collections.emptyList();
+            }
+            List<com.proyecto.servicios.model.dto.producto.ProductoDto> lista = objectMapper.readValue(
+                    is,
+                    new TypeReference<List<com.proyecto.servicios.model.dto.producto.ProductoDto>>() {}
+            );
+            if (lista != null && !lista.isEmpty()) {
+                persistir(lista);
+                limpiarCache();
+                guardarEnCache(lista);
+                log.info("Catálogo maestro de 910 productos guardado en base de datos y caché exitosamente ({} productos).", lista.size());
+                return lista;
+            }
+        } catch (Exception ex) {
+            log.error("Error al sembrar catálogo de 910 productos: {}", ex.getMessage(), ex);
+        }
+        return java.util.Collections.emptyList();
     }
 
     private List<com.proyecto.servicios.model.dto.producto.ProductoDto> normalizarYAcomodarProductos(

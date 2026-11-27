@@ -42,31 +42,14 @@ public class App implements CommandLineRunner {
     @Override
     public void run(String... args) {
         try {
-            log.info("Sincronizando catálogo completo oficial de productos desde la API de GestoPago...");
-            productoService.sincronizarCatalogo();
-        } catch (Exception ex) {
-            log.warn("No fue posible sincronizar productos desde API externa al iniciar: {}", ex.getMessage());
-        }
-
-        try {
-            if (productoRepository.count() < 5) {
-                java.util.List<Producto> catalogoBase = java.util.List.of(
-                    crearProd("1", 1, 1, "CFE Suministrador de Servicios Básicos", "450.00", "Luz (CFE)"),
-                    crearProd("2", 2, 2, "Telcel Paquete Amigo Sin Límite", "200.00", "Telefonía"),
-                    crearProd("3", 3, 3, "Movistar Prepago y Facturación", "150.00", "Telefonía"),
-                    crearProd("4", 4, 4, "AT&T México", "200.00", "Telefonía"),
-                    crearProd("5", 5, 5, "Agua Potable y Drenaje (SACMEX)", "320.00", "Agua"),
-                    crearProd("6", 6, 6, "Izzi Telecom", "550.00", "Internet & TV"),
-                    crearProd("7", 7, 7, "Totalplay Telecomunicaciones", "680.00", "Internet & TV"),
-                    crearProd("8", 8, 8, "Sky / VeTV México", "260.00", "Internet & TV"),
-                    crearProd("9", 9, 9, "Naturgy Gas Natural", "380.00", "Gas"),
-                    crearProd("10", 10, 10, "Aportación Voluntaria AFORE", "500.00", "AFORE")
-                );
-                productoRepository.saveAll(catalogoBase);
-                log.info("Catálogo oficial de respaldo registrado exitosamente en base de datos.");
+            if (productoRepository.count() < 900) {
+                log.info("Catálogo en base de datos insuficiente (< 900 productos). Cargando catálogo completo oficial de 910 productos...");
+                productoService.cargarCatalogoSemilla();
+            } else {
+                log.info("Catálogo de productos verificado: {} productos disponibles en base de datos.", productoRepository.count());
             }
         } catch (Exception ex) {
-            log.warn("No fue posible registrar productos iniciales: {}", ex.getMessage());
+            log.warn("No fue posible inicializar o sembrar catálogo de productos al iniciar: {}", ex.getMessage());
         }
 
         try {
@@ -247,18 +230,6 @@ public class App implements CommandLineRunner {
         } catch (Exception ex) {
             log.warn("No fue posible inicializar o sincronizar la cuenta de prueba 5730094736: {}", ex.getMessage());
         }
-    }
-
-    private static Producto crearProd(String id, int idProd, int idServ, String nombre, String precio, String cat) {
-        Producto p = new Producto();
-        p.setId(id);
-        p.setIdProducto(idProd);
-        p.setIdServicio(idServ);
-        p.setNombre(nombre);
-        p.setPrecio(new BigDecimal(precio));
-        p.setCategoria(cat);
-        p.setDisponible(true);
-        return p;
     }
 
     private static void displayInfo(BuildProperties buildProperties) {
