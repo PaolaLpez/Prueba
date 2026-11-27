@@ -47,4 +47,11 @@ public class CuentaController {
     public ResponseEntity<BigDecimal> consultarSaldo(@PathVariable("numeroCuenta") String numeroCuenta) {
         return new ResponseEntity<>(cuentaService.consultarSaldo(numeroCuenta), HttpStatus.OK);
     }
+
+    // 5. Transferencia de fondos entre cuentas (exclusivo administración o transferencias interbancarias)
+    @PostMapping(value = "/transferir", produces = MediaType.APPLICATION_JSON_VALUE, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<com.proyecto.servicios.model.dto.cuenta.TransferenciaResponse> transferir(
+            @jakarta.validation.Valid @RequestBody com.proyecto.servicios.model.dto.cuenta.TransferenciaRequest request) {
+        return new ResponseEntity<>(cuentaService.realizarTransferencia(request), HttpStatus.OK);
+    }
 }

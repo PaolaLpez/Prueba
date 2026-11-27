@@ -72,6 +72,10 @@ public class AuthServiceImpl implements AuthService {
                 ? (usuario.getCliente().getNombre() + " " + (usuario.getCliente().getApellidoPaterno() != null ? usuario.getCliente().getApellidoPaterno() : ""))
                 : "Paola Lopez";
 
+        String rol = (usuario.getRol() != null && !usuario.getRol().trim().isEmpty())
+                ? usuario.getRol().trim().toUpperCase()
+                : (usuario.getUsername().toLowerCase().contains("admin") ? "ADMIN" : "CLIENTE");
+
         return LoginResponse.builder()
                 .token(sessionToken)
                 .tokenType("Bearer")
@@ -79,6 +83,7 @@ public class AuthServiceImpl implements AuthService {
                 .mensajeInactividad("La sesión expirará automáticamente tras 5 minutos de inactividad")
                 .clienteId(clienteId)
                 .nombreCliente(nombre.trim())
+                .rol(rol)
                 .fechaAutenticacion(LocalDateTime.now())
                 .build();
     }
