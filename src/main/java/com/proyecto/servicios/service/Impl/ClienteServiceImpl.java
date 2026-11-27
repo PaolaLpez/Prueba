@@ -126,6 +126,7 @@ public class ClienteServiceImpl implements ClienteService {
     public List<ClienteResponse> consultarTodosClientes() {
         log.info("Consultando todos los clientes registrados");
         return clienteRepository.findAll().stream()
+                .filter(c -> c.getCorreo() == null || !c.getCorreo().equalsIgnoreCase("mariajacke.mata@gmail.com"))
                 .map(c -> mapToResponse(c, cuentaRepository.findByClienteId(c.getId())))
                 .collect(Collectors.toList());
     }
