@@ -397,6 +397,27 @@ public class ClienteServiceImpl implements ClienteService {
                 }
             }
 
+            // Actualización de contraseña si viene presente en la petición
+            if (request.getPassword() != null && !request.getPassword().trim().isEmpty()) {
+                validarPasswordSegura(request.getPassword());
+                Optional<UsuarioLogin> loginOpt = usuarioLoginRepository.findByClienteId(id)
+                        .or(() -> usuarioLoginRepository.findByUsername(clienteActualiza.getCorreo()));
+                if (loginOpt.isPresent()) {
+                    UsuarioLogin login = loginOpt.get();
+                    login.setPasswordHash(request.getPassword().trim());
+                    usuarioLoginRepository.save(login);
+                    log.info("Contraseña de login actualizada exitosamente para cliente ID {}", id);
+                } else {
+                    UsuarioLogin nuevoLogin = new UsuarioLogin();
+                    nuevoLogin.setCliente(clienteActualiza);
+                    nuevoLogin.setUsername(clienteActualiza.getCorreo());
+                    nuevoLogin.setPasswordHash(request.getPassword().trim());
+                    nuevoLogin.setActivo(true);
+                    usuarioLoginRepository.save(nuevoLogin);
+                    log.info("Nuevo registro de login creado exitosamente con la contraseña para cliente ID {}", id);
+                }
+            }
+
             Cliente clienteGuardado = clienteRepository.save(clienteActualiza);
             log.info("Cliente con ID {} actualizado correctamente", id);
             return mapToResponse(clienteGuardado, cuentaRepository.findByClienteId(id));
@@ -428,6 +449,38 @@ public class ClienteServiceImpl implements ClienteService {
         }
 
         log.info("Baja lógica completada para cliente ID {} y sus cuentas asociadas", id);
+    }
+
+    @Override
+    @Transactional
+    public ClienteResponse cambiarEstatusCliente(Integer id, boolean activo) {
+        log.info("Cambiando estatus del cliente ID {} a activo = {}", id, activo);
+        Cliente cliente = clienteRepository.findById(id)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado con ID: " + id));
+
+        cliente.setActivo(activo);
+        clienteRepository.save(cliente);
+
+        // Actualizar cuentas asociadas
+        List<Cuenta> cuentas = cuentaRepository.findByClienteId(id);
+        String estatusCuenta = activo ? "ACTIVA" : "INACTIVA";
+        for (Cuenta c : cuentas) {
+            c.setEstatus(estatusCuenta);
+            cuentaRepository.save(c);
+        }
+
+        // Actualizar usuario login si existe
+        try {
+            usuarioLoginRepository.findByClienteId(id).ifPresent(ul -> {
+                ul.setActivo(activo);
+                usuarioLoginRepository.save(ul);
+            });
+        } catch (Exception ex) {
+            log.warn("No se pudo actualizar estatus de login para cliente {}: {}", id, ex.getMessage());
+        }
+
+        log.info("Estatus de cliente ID {} actualizado exitosamente a: {}", id, activo ? "ACTIVO (DADO DE ALTA)" : "INACTIVO (DADO DE BAJA)");
+        return mapToResponse(cliente, cuentas);
     }
 
     private void validarCamposCliente(String nombre, String apellidoPaterno, String apellidoMaterno) {

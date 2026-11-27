@@ -21,5 +21,6 @@ public class LoginResponse {
     private String mensajeInactividad;
     private Integer clienteId;
     private String nombreCliente;
+    private String rol;
     private LocalDateTime fechaAutenticacion;
 }

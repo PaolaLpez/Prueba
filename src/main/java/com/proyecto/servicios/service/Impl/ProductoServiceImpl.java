@@ -68,21 +68,62 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
 
     @Override
     public ProductoResponse obtenerProductos() {
+        // 1. Si hay productos en caché y es un catálogo sustancial (> 5 productos), retornar
         List<com.proyecto.servicios.model.dto.producto.ProductoDto> productos = leerCache();
-        if (productos == null) {
-            productos = leerBaseDeDatos();
+        if (productos != null && productos.size() > 5) {
+            return respuestaProductos(normalizarYAcomodarProductos(productos), "Lista de productos obtenida correctamente");
         }
-        if (productos != null && !productos.isEmpty()) {
+
+        // 2. Si la base de datos tiene el catálogo real (> 5 productos), usarlo y cachear
+        productos = leerBaseDeDatos();
+        if (productos != null && productos.size() > 5) {
             productos = normalizarYAcomodarProductos(productos);
             guardarEnCache(productos);
             return respuestaProductos(productos, "Lista de productos obtenida correctamente");
         }
 
-        productos = consultarApi();
-        productos = normalizarYAcomodarProductos(productos);
-        persistir(productos);
-        guardarEnCache(productos);
-        return respuestaProductos(productos, "Lista de productos obtenida correctamente");
+        // 3. Si la base de datos solo tiene 1 o pocos productos dummy, consultar la API oficial de GestoPago
+        try {
+            log.info("Catálogo local insuficiente ({} productos). Sincronizando catálogo completo desde API externa de GestoPago...",
+                    productos != null ? productos.size() : 0);
+            List<com.proyecto.servicios.model.dto.producto.ProductoDto> productosApi = consultarApi();
+            if (productosApi != null && !productosApi.isEmpty()) {
+                productosApi = normalizarYAcomodarProductos(productosApi);
+                persistir(productosApi);
+                guardarEnCache(productosApi);
+                log.info("Catálogo oficial sincronizado exitosamente con {} productos reales desde la API externa.", productosApi.size());
+                return respuestaProductos(productosApi, "Lista de productos obtenida correctamente");
+            }
+        } catch (Exception ex) {
+            log.error("No fue posible consultar la API externa de productos en tiempo real: {}", ex.getMessage());
+        }
+
+        // 4. Si la API falló y tenemos productos locales de respaldo, devolverlos
+        if (productos != null && !productos.isEmpty()) {
+            return respuestaProductos(normalizarYAcomodarProductos(productos), "Lista de productos obtenida correctamente");
+        }
+
+        return respuestaProductos(java.util.Collections.emptyList(), "No hay productos disponibles");
+    }
+
+    @Override
+    public ProductoResponse sincronizarCatalogo() {
+        log.info("Forzando sincronización inmediata del catálogo desde API oficial de GestoPago...");
+        try {
+            List<com.proyecto.servicios.model.dto.producto.ProductoDto> productosApi = consultarApi();
+            if (productosApi != null && !productosApi.isEmpty()) {
+                productosApi = normalizarYAcomodarProductos(productosApi);
+                persistir(productosApi);
+                limpiarCache();
+                guardarEnCache(productosApi);
+                log.info("Catálogo forzado sincronizado con {} productos reales.", productosApi.size());
+                return respuestaProductos(productosApi, "Catálogo sincronizado exitosamente desde GestoPago API");
+            }
+        } catch (Exception ex) {
+            log.error("Error al forzar sincronización de productos: {}", ex.getMessage());
+            throw ex;
+        }
+        return obtenerProductos();
     }
 
     private List<com.proyecto.servicios.model.dto.producto.ProductoDto> normalizarYAcomodarProductos(

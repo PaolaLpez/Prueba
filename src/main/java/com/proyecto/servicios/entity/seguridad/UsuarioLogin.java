@@ -30,6 +30,9 @@ public class UsuarioLogin {
     @Column(name = "activo", nullable = false)
     private Boolean activo = true;
 
+    @Column(name = "rol", length = 30)
+    private String rol = "CLIENTE";
+
     @Column(name = "ultimo_acceso")
     private LocalDateTime ultimoAcceso;
 }

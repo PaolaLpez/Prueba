@@ -5,6 +5,9 @@ import com.proyecto.servicios.model.dto.producto.ProductoResponse;
 // Interfaz del servicio de negocio para la gestión de productos
 public interface ProductoService {
 
-    // Obtiene el listado de productos desde el servicio externo
+    // Obtiene el listado de productos desde el servicio externo o base de datos
     ProductoResponse obtenerProductos();
+
+    // Sincroniza forzadamente el catálogo completo consumiendo la API externa de GestoPago
+    ProductoResponse sincronizarCatalogo();
 }

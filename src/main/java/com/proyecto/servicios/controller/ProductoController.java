@@ -26,4 +26,10 @@ public class ProductoController {
     public ResponseEntity<ProductoResponse> obtenerProductos() {
         return new ResponseEntity<>(productoService.obtenerProductos(), HttpStatus.OK);
     }
+
+    // Endpoint GET para forzar la sincronización en tiempo real desde la API externa de GestoPago
+    @GetMapping(value = "/sincronizar", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ProductoResponse> sincronizarProductos() {
+        return new ResponseEntity<>(productoService.sincronizarCatalogo(), HttpStatus.OK);
+    }
 }

@@ -23,4 +23,5 @@ public interface ClienteService {
     ClienteResponse actualizarCliente(Integer id, ClienteActualizacionRequest request);
     ClienteResponse actualizarCliente(ClienteActualizacionRequest request);
     void bajaLogicaCliente(Integer id);
+    ClienteResponse cambiarEstatusCliente(Integer id, boolean activo);
 }

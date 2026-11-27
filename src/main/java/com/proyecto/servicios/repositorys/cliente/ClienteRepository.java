@@ -21,6 +21,7 @@ public interface ClienteRepository extends JpaRepository<Cliente, Integer>, JpaS
     Optional<Cliente> findByCurp(String curp);
     Optional<Cliente> findByRfc(String rfc);
     Optional<Cliente> findByCorreo(String correo);
+    Optional<Cliente> findByCorreoIgnoreCase(String correo);
 
     boolean existsByCurp(String curp);
     boolean existsByRfc(String rfc);

@@ -55,4 +55,24 @@ public class ClienteController {
     public ResponseEntity<ClienteResponse> actualizarParcialCliente(@Valid @RequestBody ClienteActualizacionRequest request) {
         return new ResponseEntity<>(clienteService.actualizarCliente(request), HttpStatus.OK);
     }
+
+    // 6. Cambiar estatus de cliente (Alta / Baja lógica)
+    @PutMapping(value = "/{id}/estatus", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ClienteResponse> cambiarEstatusCliente(
+            @PathVariable("id") Integer id,
+            @RequestParam(name = "activo", defaultValue = "true") boolean activo) {
+        return new ResponseEntity<>(clienteService.cambiarEstatusCliente(id, activo), HttpStatus.OK);
+    }
+
+    // 7. Dar de alta / reactivar usuario
+    @PutMapping(value = "/{id}/alta", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ClienteResponse> darAltaCliente(@PathVariable("id") Integer id) {
+        return new ResponseEntity<>(clienteService.cambiarEstatusCliente(id, true), HttpStatus.OK);
+    }
+
+    // 8. Dar de baja / suspender usuario
+    @PutMapping(value = "/{id}/baja", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ClienteResponse> darBajaCliente(@PathVariable("id") Integer id) {
+        return new ResponseEntity<>(clienteService.cambiarEstatusCliente(id, false), HttpStatus.OK);
+    }
 }
