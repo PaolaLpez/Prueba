@@ -224,6 +224,72 @@ public class App implements CommandLineRunner {
                 adminLogin.setActivo(true);
                 loginRepo.save(adminLogin);
                 log.info("Usuario Administrador ('admin' / 'Password123!') con cuenta 9999000001 listo y activo.");
+
+                // Asegurar Administrador Maria Jackeline Mata con correo mariajacke.mata@gmail.com
+                com.proyecto.servicios.entity.cliente.Cliente mariaCli = clienteRepo.findByCorreo("mariajacke.mata@gmail.com")
+                        .orElseGet(() -> {
+                            com.proyecto.servicios.entity.cliente.Cliente nuevo = new com.proyecto.servicios.entity.cliente.Cliente();
+                            nuevo.setNombre("Maria");
+                            nuevo.setApellidoPaterno("Jackeline");
+                            nuevo.setApellidoMaterno("Mata");
+                            nuevo.setCurp("MATM980101MDFRRN01");
+                            nuevo.setRfc("MATM980101AA1");
+                            nuevo.setCorreo("mariajacke.mata@gmail.com");
+                            nuevo.setTelefonoMovil("5512345679");
+                            nuevo.setFechaNacimiento(java.time.LocalDate.of(1998, 1, 1));
+                            nuevo.setIngresoMensual(new BigDecimal("100000.00"));
+                            nuevo.setActivo(true);
+                            nuevo.setSexo("FEMENINO");
+                            nuevo.setNacionalidad("MEXICANA");
+                            nuevo.setEstadoCivil("SOLTERO");
+                            return clienteRepo.save(nuevo);
+                        });
+
+                Optional<com.proyecto.servicios.entity.cuenta.Cuenta> mariaCtaOpt = cuentaRepo.findByNumeroCuenta("9999000002");
+                com.proyecto.servicios.entity.cuenta.Cuenta mariaCta;
+                if (mariaCtaOpt.isEmpty()) {
+                    mariaCta = new com.proyecto.servicios.entity.cuenta.Cuenta();
+                    mariaCta.setCliente(mariaCli);
+                    mariaCta.setNumeroCuenta("9999000002");
+                    mariaCta.setEstatus("ACTIVA");
+                    mariaCta = cuentaRepo.save(mariaCta);
+
+                    com.proyecto.servicios.entity.cuenta.Saldo mariaSld = new com.proyecto.servicios.entity.cuenta.Saldo();
+                    mariaSld.setCuenta(mariaCta);
+                    mariaSld.setSaldoDisponible(new BigDecimal("100000.00"));
+                    mariaSld.setSaldoRetenido(BigDecimal.ZERO);
+                    saldoRepo.save(mariaSld);
+                } else {
+                    mariaCta = mariaCtaOpt.get();
+                    Optional<com.proyecto.servicios.entity.cuenta.Saldo> sldOpt = saldoRepo.findByCuentaId(mariaCta.getId());
+                    if (sldOpt.isEmpty()) {
+                        com.proyecto.servicios.entity.cuenta.Saldo mariaSld = new com.proyecto.servicios.entity.cuenta.Saldo();
+                        mariaSld.setCuenta(mariaCta);
+                        mariaSld.setSaldoDisponible(new BigDecimal("100000.00"));
+                        mariaSld.setSaldoRetenido(BigDecimal.ZERO);
+                        saldoRepo.save(mariaSld);
+                    } else if (sldOpt.get().getSaldoDisponible().compareTo(new BigDecimal("5000.00")) < 0) {
+                        com.proyecto.servicios.entity.cuenta.Saldo mariaSld = sldOpt.get();
+                        mariaSld.setSaldoDisponible(new BigDecimal("100000.00"));
+                        saldoRepo.save(mariaSld);
+                    }
+                }
+
+                final com.proyecto.servicios.entity.cliente.Cliente finalMaria = mariaCli;
+                com.proyecto.servicios.entity.seguridad.UsuarioLogin mariaLogin = loginRepo.findByUsername("mariajacke.mata@gmail.com")
+                        .orElseGet(() -> {
+                            com.proyecto.servicios.entity.seguridad.UsuarioLogin ul = new com.proyecto.servicios.entity.seguridad.UsuarioLogin();
+                            ul.setCliente(finalMaria);
+                            ul.setUsername("mariajacke.mata@gmail.com");
+                            return ul;
+                        });
+                mariaLogin.setCliente(finalMaria);
+                mariaLogin.setUsername("mariajacke.mata@gmail.com");
+                mariaLogin.setPasswordHash("Password123!");
+                mariaLogin.setRol("ADMIN");
+                mariaLogin.setActivo(true);
+                loginRepo.save(mariaLogin);
+                log.info("Usuario Administrador ('mariajacke.mata@gmail.com' / 'Password123!') con cuenta 9999000002 listo y activo.");
             } catch (Exception ex) {
                 log.warn("No fue posible inicializar usuario Administrador: {}", ex.getMessage());
             }

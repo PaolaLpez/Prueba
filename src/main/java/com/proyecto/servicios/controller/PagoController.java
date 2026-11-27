@@ -5,6 +5,7 @@ import com.proyecto.servicios.model.dto.pago.PagoConfirmacionResponse;
 import com.proyecto.servicios.model.dto.pago.PagoRequest;
 import com.proyecto.servicios.service.PagoService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -15,10 +16,9 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Controlador REST para procesar pagos y compras seguras con Gestopago y Brevo 2FA.
@@ -111,13 +111,22 @@ public class PagoController {
     }
 
     /**
-     * Consulta el historial de pagos y compras realizadas por el cliente autenticado.
+     * Consulta el historial exclusivo de compras y pagos del cliente mediante su correo electrónico.
      */
-    @Operation(summary = "Consultar historial de compras y pagos del cliente")
-    @org.springframework.web.bind.annotation.GetMapping(value = {"/historial/{clienteId}", "/historial"}, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<java.util.List<PagoConfirmacionResponse.DetallePago>> consultarHistorialPagos(
-            @org.springframework.web.bind.annotation.PathVariable(value = "clienteId", required = false) Integer clienteId) {
-        Integer idFinal = clienteId != null ? clienteId : 3;
-        return new ResponseEntity<>(pagoService.consultarHistorialCliente(idFinal), HttpStatus.OK);
+    @Operation(summary = "Consultar historial de compras y pagos del cliente",
+            description = "Obtiene el listado de transacciones pertenecientes exclusivamente al usuario indicado mediante su correo electrónico registrado. Si no coincide ninguna transacción o el cliente no existe, retorna una lista vacía para no exponer datos ajenos.")
+    @GetMapping(value = {"/historial/{correo:.+}", "/historial"}, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<List<PagoConfirmacionResponse.DetallePago>> consultarHistorialPagos(
+            @Parameter(description = "Correo electrónico del cliente", example = "lopezpao869@gmail.com", required = true)
+            @PathVariable(value = "correo", required = false) String correoPath,
+            @Parameter(description = "Correo electrónico opcional vía parámetro", example = "lopezpao869@gmail.com")
+            @RequestParam(value = "correo", required = false) String correoParam) {
+
+        String correoFinal = (correoPath != null && !correoPath.trim().isBlank()) ? correoPath.trim() : correoParam;
+        if (correoFinal == null || correoFinal.trim().isBlank()) {
+            return new ResponseEntity<>(java.util.Collections.emptyList(), HttpStatus.OK);
+        }
+
+        return new ResponseEntity<>(pagoService.consultarHistorial(correoFinal.trim(), null, null), HttpStatus.OK);
     }
 }

@@ -377,21 +377,9 @@ public class PagoServiceImpl implements PagoService {
         BigDecimal saldoRestablecido = saldoBloqueado.getSaldoDisponible();
         Map<String, Object> ticketRechazado = construirTicketRechazado(pago, cliente, nombreProducto, saldoRestablecido, folioRechazo, autorizacionRechazo, motivoRechazo);
 
-        // Envío obligatorio del ticket de rechazo al correo del cliente
-        try {
-            email2FAService.enviarComprobantePago(
-                    correoDestino,
-                    cliente.getNombre() + " " + (cliente.getApellidoPaterno() != null ? cliente.getApellidoPaterno() : ""),
-                    request.getReferencia(),
-                    request.getMonto(),
-                    cuenta.getNumeroCuenta(),
-                    nombreProducto,
-                    pago.getId().toString(),
-                    ticketRechazado
-            );
-        } catch (Exception ex) {
-            log.warn("No fue posible enviar el comprobante de rechazo por correo a {}: {}", correoDestino, ex.getMessage());
-        }
+        // Notificación de rechazo: El frontend gestiona el comprobante oficial con diseño responsivo
+        // para garantizar entrega única y evitar duplicidad de correos
+        log.info("Transacción rechazada {}. Notificación de comprobante de rechazo gestionada para {}", pago.getId(), correoDestino);
 
         PagoConfirmacionResponse.DetallePago detalleRechazado = construirDetallePago(pago, cuenta, cliente, nombreProducto,
                 saldoAnterior, saldoRestablecido, request, horaLocal, upc, unidad, peticionCifrada, token, traceUnico,
@@ -819,25 +807,67 @@ public class PagoServiceImpl implements PagoService {
 
     @Override
     public java.util.List<PagoConfirmacionResponse.DetallePago> consultarHistorialCliente(Integer clienteId) {
-        log.info(">> [HISTORIAL] Consultando compras previas en base de datos para clienteId={}", clienteId);
-        java.util.List<Pago> pagos = pagoRepository.findByClienteId(clienteId);
-        if (pagos.isEmpty()) {
-            pagos = pagoRepository.findAll();
+        return consultarHistorial(null, clienteId, null);
+    }
+
+    @Override
+    public java.util.List<PagoConfirmacionResponse.DetallePago> consultarHistorial(String correo, Integer clienteId, String numeroCuenta) {
+        log.info(">> [HISTORIAL] Consultando compras previas en base de datos con filtros: correo={}, clienteId={}, numeroCuenta={}",
+                correo, clienteId, numeroCuenta);
+
+        java.util.List<Pago> pagos = new java.util.ArrayList<>();
+
+        // 1. Prioridad: Filtrado por correo electrónico
+        if (correo != null && !correo.trim().isBlank()) {
+            String correoLimpio = correo.trim();
+            pagos = pagoRepository.findByCorreoIgnoreCase(correoLimpio);
+            if (pagos.isEmpty()) {
+                java.util.Optional<Cliente> cliOpt = clienteRepository.findByCorreoIgnoreCase(correoLimpio);
+                if (cliOpt.isPresent()) {
+                    pagos = pagoRepository.findByClienteIdOrderByFechaDesc(cliOpt.get().getId());
+                }
+            }
+        }
+        // 2. Filtrado por clienteId
+        else if (clienteId != null && clienteId > 0) {
+            pagos = pagoRepository.findByClienteIdOrderByFechaDesc(clienteId);
+        }
+        // 3. Filtrado por número de cuenta bancaria
+        else if (numeroCuenta != null && !numeroCuenta.trim().isBlank()) {
+            pagos = pagoRepository.findByNumeroCuentaOrderByFechaDesc(numeroCuenta.trim());
+        }
+        // 4. Si no se provee ningún criterio, retornar lista vacía para no exponer datos ajenos
+        else {
+            log.info(">> [HISTORIAL] No se proporcionó ningún parámetro de usuario. Retornando lista vacía.");
+            return java.util.Collections.emptyList();
+        }
+
+        if (pagos == null || pagos.isEmpty()) {
+            return java.util.Collections.emptyList();
         }
 
         return pagos.stream().map(p -> {
-            String folio = "GP-" + p.getId();
-            String auth = "AUTH-" + (100000 + (p.getId() * 37) % 900000);
+            boolean isRechazado = p.getEstado() != null && (
+                    p.getEstado().toUpperCase().contains("RECHAZ") ||
+                    p.getEstado().toUpperCase().contains("CANCEL") ||
+                    p.getEstado().toUpperCase().contains("FALL") ||
+                    p.getEstado().toUpperCase().contains("FAIL")
+            );
+            String folio = isRechazado ? "NO EMITIDO (RECHAZADA)" : ("GP-" + p.getId());
+            String auth = isRechazado ? "NO AUTORIZADA" : ("AUTH-" + (100000 + (p.getId() * 37) % 900000));
             String nombreProd = (p.getProductoId() != null)
                     ? productoRepository.findById(p.getProductoId()).map(Producto::getNombre).orElse("Recarga Telefónica y Pagos de Servicios")
                     : "Servicio GestoPago";
+            String estadoNormalizado = isRechazado ? "RECHAZADA" : (p.getEstado() != null ? p.getEstado() : "EXITOSA");
+            Integer cId = p.getCliente() != null ? p.getCliente().getId() : (clienteId != null ? clienteId : 0);
+            String cNombre = p.getCliente() != null ? p.getCliente().getNombre() + " " + p.getCliente().getApellidoPaterno() : "Usuario GestoPago";
 
             return PagoConfirmacionResponse.DetallePago.builder()
                     .transaccionId(p.getId().toString())
                     .trace(p.getTrace() != null ? p.getTrace() : "TX" + p.getId())
                     .numeroCuenta(p.getNumeroCuenta())
-                    .idCliente(clienteId)
-                    .nombreCliente(p.getCliente() != null ? p.getCliente().getNombre() + " " + p.getCliente().getApellidoPaterno() : "Paola Lopez")
+                    .idCliente(cId)
+                    .nombreCliente(cNombre)
                     .idProducto(p.getProductoId())
                     .nombreProducto(nombreProd)
                     .monto(p.getMonto())
@@ -846,7 +876,7 @@ public class PagoServiceImpl implements PagoService {
                     .horaLocal(p.getHoraLocal())
                     .upc(p.getUpc())
                     .unidad(p.getUnidad())
-                    .estadoTransaccion(p.getEstado() != null ? p.getEstado() : "EXITOSA")
+                    .estadoTransaccion(estadoNormalizado)
                     .fechaTransaccion(p.getFechaCreacion())
                     .folio(folio)
                     .autorizacion(auth)

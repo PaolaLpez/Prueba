@@ -24,4 +24,9 @@ public interface PagoService {
      * Consulta el historial completo de pagos y compras realizadas por el cliente.
      */
     List<PagoConfirmacionResponse.DetallePago> consultarHistorialCliente(Integer clienteId);
+
+    /**
+     * Consulta el historial exclusivo y aislado de pagos por correo electrónico, ID de cliente o cuenta.
+     */
+    List<PagoConfirmacionResponse.DetallePago> consultarHistorial(String correo, Integer clienteId, String numeroCuenta);
 }
