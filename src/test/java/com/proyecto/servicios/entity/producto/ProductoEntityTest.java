@@ -25,6 +25,7 @@ public class ProductoEntityTest {
         p.setHasDigitoVerificador(false);
         p.setShowAyuda(true);
         p.setTipoReferencia("NUMERO");
+        p.setLeyenda("Para reclamaciones...");
 
         assertEquals("100", p.getId());
         assertEquals("Recarga", p.getNombre());
@@ -38,6 +39,7 @@ public class ProductoEntityTest {
         assertFalse(p.getHasDigitoVerificador());
         assertTrue(p.getShowAyuda());
         assertEquals("NUMERO", p.getTipoReferencia());
+        assertEquals("Para reclamaciones...", p.getLeyenda());
     }
 }
 

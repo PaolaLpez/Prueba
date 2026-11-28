@@ -227,6 +227,7 @@ class EntitiesTest {
         prod.setHasDigitoVerificador(false);
         prod.setShowAyuda(false);
         prod.setTipoReferencia("NUM");
+        prod.setLeyenda("Leyenda");
 
         assertEquals("1", prod.getId());
         assertEquals(1, prod.getIdProducto());
@@ -238,6 +239,7 @@ class EntitiesTest {
         assertEquals("Servicios", prod.getCategoria());
         assertTrue(prod.getDisponible());
         assertFalse(prod.getHasDigitoVerificador());
+        assertEquals("Leyenda", prod.getLeyenda());
         assertFalse(prod.getShowAyuda());
         assertEquals("NUM", prod.getTipoReferencia());
     }

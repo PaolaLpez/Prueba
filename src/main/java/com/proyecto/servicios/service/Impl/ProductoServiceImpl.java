@@ -172,6 +172,9 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                     if (p.getCategoria() == null || p.getCategoria().trim().isEmpty()) {
                         p.setCategoria("0");
                     }
+                    if (p.getLeyenda() == null || p.getLeyenda().trim().isEmpty()) {
+                        p.setLeyenda(resolverLeyendaReclamaciones(p.getNombre(), p.getCategoria()));
+                    }
                 })
                 .sorted(java.util.Comparator.comparing(p -> p.getPrecio() != null ? p.getPrecio() : java.math.BigDecimal.ZERO))
                 .collect(java.util.stream.Collectors.toList());
@@ -319,6 +322,9 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
         entity.setHasDigitoVerificador(dto.getHasDigitoVerificador());
         entity.setShowAyuda(dto.getShowAyuda());
         entity.setTipoReferencia(dto.getTipoReferencia());
+        entity.setLeyenda(dto.getLeyenda() != null && !dto.getLeyenda().isBlank()
+                ? dto.getLeyenda()
+                : resolverLeyendaReclamaciones(dto.getNombre(), dto.getCategoria()));
         return entity;
     }
 
@@ -329,7 +335,15 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                 .idServicio(entity.getIdServicio()).idProducto(entity.getIdProducto())
                 .idCatTipoServicio(entity.getIdCatTipoServicio()).tipoFront(entity.getTipoFront())
                 .hasDigitoVerificador(entity.getHasDigitoVerificador()).showAyuda(entity.getShowAyuda())
-                .tipoReferencia(entity.getTipoReferencia()).build();
+                .tipoReferencia(entity.getTipoReferencia())
+                .leyenda(entity.getLeyenda() != null && !entity.getLeyenda().isBlank()
+                        ? entity.getLeyenda()
+                        : resolverLeyendaReclamaciones(entity.getNombre(), entity.getCategoria()))
+                .build();
+    }
+
+    private String resolverLeyendaReclamaciones(String nombre, String categoria) {
+        return "Para cualquier duda, aclaración o reclamación sobre esta operación, comuníquese al Centro de Atención a Clientes GestoPago: 800-437-8672 (800-GESTOPAGO) o al correo soporte@gestopago.com. Conserve este comprobante para su seguimiento.";
     }
 
     private List<com.proyecto.servicios.model.dto.producto.ProductoDto> parsearProductos(String xml) {
@@ -350,6 +364,10 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
             for (int index = 0; index < nodes.getLength(); index++) {
                 Element producto = (Element) nodes.item(index);
                 String precio = producto.getAttribute("precio");
+                String leyendaAttr = producto.getAttribute("leyenda");
+                if (leyendaAttr.isBlank()) {
+                    leyendaAttr = resolverLeyendaReclamaciones(producto.getAttribute("producto"), producto.getAttribute("servicio"));
+                }
                 productos.add(com.proyecto.servicios.model.dto.producto.ProductoDto.builder()
                         .id(producto.getAttribute("idProducto"))
                         .nombre(producto.getAttribute("producto"))
@@ -363,6 +381,7 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                         .hasDigitoVerificador(booleano(producto, "hasDigitoVerificador"))
                         .showAyuda(booleano(producto, "showAyuda"))
                         .tipoReferencia(producto.getAttribute("tipoReferencia"))
+                        .leyenda(leyendaAttr)
                         .build());
             }
             return productos;

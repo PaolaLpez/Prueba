@@ -29,4 +29,5 @@ public class ProductoDto {
     private Boolean hasDigitoVerificador;
     private Boolean showAyuda;
     private String tipoReferencia;
+    private String leyenda;
 }

@@ -32,4 +32,7 @@ public class Producto {
     private Boolean hasDigitoVerificador;
     private Boolean showAyuda;
     private String tipoReferencia;
+
+    @Column(name = "leyenda", length = 1000)
+    private String leyenda;
 }
