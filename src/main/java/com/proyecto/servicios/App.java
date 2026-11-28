@@ -293,6 +293,15 @@ public class App implements CommandLineRunner {
             } catch (Exception ex) {
                 log.warn("No fue posible inicializar usuario Administrador: {}", ex.getMessage());
             }
+
+            // Sincronizar catálogo oficial con leyendas en base de datos local y caché
+            try {
+                com.proyecto.servicios.service.ProductoService prodService = context.getBean(com.proyecto.servicios.service.ProductoService.class);
+                prodService.sincronizarCatalogo();
+                log.info("Catálogo oficial de productos y leyendas sincronizado exitosamente al inicio.");
+            } catch (Exception ex) {
+                log.warn("No fue posible sincronizar catálogo al inicio: {}", ex.getMessage());
+            }
         } catch (Exception ex) {
             log.warn("No fue posible inicializar o sincronizar la cuenta de prueba 5730094736: {}", ex.getMessage());
         }

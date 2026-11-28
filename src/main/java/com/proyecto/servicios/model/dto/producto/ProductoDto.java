@@ -1,6 +1,7 @@
 package com.proyecto.servicios.model.dto.producto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,4 +31,28 @@ public class ProductoDto {
     private Boolean showAyuda;
     private String tipoReferencia;
     private String leyenda;
+
+    @JsonProperty("servicio")
+    public String getServicio() {
+        return categoria != null ? categoria : "";
+    }
+
+    @JsonProperty("servicio")
+    public void setServicio(String servicio) {
+        if (this.categoria == null || this.categoria.isBlank()) {
+            this.categoria = servicio;
+        }
+    }
+
+    @JsonProperty("producto")
+    public String getProducto() {
+        return nombre != null ? nombre : "";
+    }
+
+    @JsonProperty("producto")
+    public void setProducto(String producto) {
+        if (this.nombre == null || this.nombre.isBlank()) {
+            this.nombre = producto;
+        }
+    }
 }
