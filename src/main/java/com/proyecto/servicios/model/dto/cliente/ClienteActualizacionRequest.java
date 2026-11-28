@@ -56,7 +56,7 @@ public class ClienteActualizacionRequest {
              message = "La nacionalidad debe ser una opción válida del catálogo (MEXICANA, EXTRANJERA, ESTADOUNIDENSE, CANADIENSE, ESPANIOLA, COLOMBIANA, ARGENTINA, OTRA)")
     private String nacionalidad;
 
-    @Pattern(regexp = "^$|(?i)^(SOLTERO|CASADO|DIVORCIADO|VIUDO|UNION LIBRE|UNION_LIBRE)$", 
+    @Pattern(regexp = "^$|(?i)^(SOLTERO(\\([AO]\\))?|CASADO(\\([AO]\\))?|DIVORCIADO(\\([AO]\\))?|VIUDO(\\([AO]\\))?|UNI[OÓ]N[ _]LIBRE)$", 
              message = "El estado civil debe ser una opción válida del catálogo (SOLTERO, CASADO, DIVORCIADO, VIUDO, UNION LIBRE)")
     private String estadoCivil;
 

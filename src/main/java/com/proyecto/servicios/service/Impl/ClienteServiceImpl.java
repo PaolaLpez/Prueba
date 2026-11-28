@@ -485,19 +485,26 @@ public class ClienteServiceImpl implements ClienteService {
     }
 
     private void validarCamposCliente(String nombre, String apellidoPaterno, String apellidoMaterno) {
-        validarTextoNoVacioYLongitud("nombre", nombre, 3);
-        validarTextoNoVacioYLongitud("apellido paterno", apellidoPaterno, 3);
-        validarTextoNoVacioYLongitud("apellido materno", apellidoMaterno, 3);
+        validarTextoNoVacioYLongitud("nombre", nombre, 3, 62);
+        validarTextoNoVacioYLongitud("apellido paterno", apellidoPaterno, 3, 50);
+        validarTextoNoVacioYLongitud("apellido materno", apellidoMaterno, 3, 50);
     }
 
     private void validarTextoNoVacioYLongitud(String campo, String valor, int longitudMinima) {
+        validarTextoNoVacioYLongitud(campo, valor, longitudMinima, "nombre".equalsIgnoreCase(campo) ? 62 : 50);
+    }
+
+    private void validarTextoNoVacioYLongitud(String campo, String valor, int longitudMinima, int longitudMaxima) {
         if (valor == null || valor.trim().isEmpty()) {
             throw new ReglaNegocioException("El campo " + campo + " es obligatorio y no puede estar vacío");
         }
         if (valor.trim().length() < longitudMinima) {
             throw new ReglaNegocioException("El " + campo + " debe tener al menos " + longitudMinima + " letras (no se permiten nombres de dos letras)");
         }
-        if (!valor.trim().matches("^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{" + longitudMinima + ",50}$")) {
+        if (valor.trim().length() > longitudMaxima) {
+            throw new ReglaNegocioException("El " + campo + " no puede exceder " + longitudMaxima + " caracteres (tienes " + valor.trim().length() + ")");
+        }
+        if (!valor.trim().matches("^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{" + longitudMinima + "," + longitudMaxima + "}$")) {
             throw new ReglaNegocioException("El " + campo + " solo debe contener letras y espacios (no se permiten números ni caracteres extraños)");
         }
     }

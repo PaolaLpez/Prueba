@@ -28,7 +28,7 @@ public enum EstadoCivil {
         if (texto == null || texto.trim().isEmpty()) {
             return false;
         }
-        String limpio = texto.trim().toUpperCase().replace("_", " ");
+        String limpio = normalizar(texto);
         return Arrays.stream(values())
                 .anyMatch(ec -> ec.valor.equalsIgnoreCase(limpio) || ec.name().equalsIgnoreCase(limpio));
     }
@@ -37,7 +37,12 @@ public enum EstadoCivil {
         if (texto == null || texto.trim().isEmpty()) {
             return null;
         }
-        String limpio = texto.trim().toUpperCase().replace("_", " ");
+        String limpio = texto.trim().toUpperCase()
+                .replace("(A)", "")
+                .replace("(O)", "")
+                .replace("Ó", "O")
+                .replace("_", " ")
+                .trim();
         for (EstadoCivil ec : values()) {
             if (ec.valor.equalsIgnoreCase(limpio) || ec.name().equalsIgnoreCase(limpio)) {
                 return ec.valor;
