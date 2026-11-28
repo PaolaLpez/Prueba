@@ -367,9 +367,9 @@ public class PagoServiceImpl implements PagoService {
                 : "Operación no autorizada por el proveedor GestoPago";
         log.warn("Transacción rechazada por GestoPago: {}. Saldo reintegrado a la cuenta.", motivoRechazo);
 
-        String folioRechazo = (txResponse != null && txResponse.getFolio() != null && !txResponse.getFolio().isBlank() && !txResponse.getFolio().startsWith("GP-"))
+        String folioRechazo = (txResponse != null && txResponse.getFolio() != null && !txResponse.getFolio().isBlank() && !txResponse.getFolio().contains("NO EMITIDO"))
                 ? txResponse.getFolio()
-                : "NO EMITIDO (RECHAZADA)";
+                : ("GP-" + pago.getId());
         String autorizacionRechazo = (txResponse != null && txResponse.getAutorizacion() != null && !txResponse.getAutorizacion().isBlank() && !txResponse.getAutorizacion().startsWith("-"))
                 ? txResponse.getAutorizacion()
                 : "NO AUTORIZADA";
@@ -853,7 +853,7 @@ public class PagoServiceImpl implements PagoService {
                     p.getEstado().toUpperCase().contains("FALL") ||
                     p.getEstado().toUpperCase().contains("FAIL")
             );
-            String folio = isRechazado ? "NO EMITIDO (RECHAZADA)" : ("GP-" + p.getId());
+            String folio = "GP-" + p.getId();
             String auth = isRechazado ? "NO AUTORIZADA" : ("AUTH-" + (100000 + (p.getId() * 37) % 900000));
             String nombreProd = (p.getProductoId() != null)
                     ? productoRepository.findById(p.getProductoId()).map(Producto::getNombre).orElse("Recarga Telefónica y Pagos de Servicios")
