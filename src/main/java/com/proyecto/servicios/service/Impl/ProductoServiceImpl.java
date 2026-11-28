@@ -172,9 +172,7 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                     if (p.getCategoria() == null || p.getCategoria().trim().isEmpty()) {
                         p.setCategoria("0");
                     }
-                    if (p.getLeyenda() == null || p.getLeyenda().trim().isEmpty()) {
-                        p.setLeyenda(resolverLeyendaReclamaciones(p.getNombre(), p.getCategoria()));
-                    }
+                    p.setLeyenda(resolverLeyendaReclamaciones(p.getNombre(), p.getCategoria()));
                 })
                 .sorted(java.util.Comparator.comparing(p -> p.getPrecio() != null ? p.getPrecio() : java.math.BigDecimal.ZERO))
                 .collect(java.util.stream.Collectors.toList());
@@ -336,14 +334,29 @@ public class ProductoServiceImpl implements com.proyecto.servicios.service.Produ
                 .idCatTipoServicio(entity.getIdCatTipoServicio()).tipoFront(entity.getTipoFront())
                 .hasDigitoVerificador(entity.getHasDigitoVerificador()).showAyuda(entity.getShowAyuda())
                 .tipoReferencia(entity.getTipoReferencia())
-                .leyenda(entity.getLeyenda() != null && !entity.getLeyenda().isBlank()
-                        ? entity.getLeyenda()
-                        : resolverLeyendaReclamaciones(entity.getNombre(), entity.getCategoria()))
+                .leyenda(resolverLeyendaReclamaciones(entity.getNombre(), entity.getCategoria()))
                 .build();
     }
 
     private String resolverLeyendaReclamaciones(String nombre, String categoria) {
-        return "Para cualquier duda, aclaración o reclamación sobre esta operación, comuníquese al Centro de Atención a Clientes GestoPago: 800-437-8672 (800-GESTOPAGO) o al correo soporte@gestopago.com. Conserve este comprobante para su seguimiento.";
+        String serv = (categoria != null && !categoria.isBlank() && !categoria.equals("0") && !categoria.equalsIgnoreCase("General"))
+                ? categoria.trim()
+                : null;
+        String prod = (nombre != null && !nombre.isBlank()) ? nombre.trim() : null;
+
+        if (serv != null && prod != null) {
+            if (serv.equalsIgnoreCase(prod)) {
+                return "Para cualquier duda, aclaración o reclamo sobre su servicio " + serv + ", comuníquese directamente al centro de atención a clientes del proveedor o al soporte oficial de GestoPago al 800-GESTOPAGO.";
+            } else {
+                return "Para cualquier duda, aclaración o reclamo sobre su servicio " + serv + " (" + prod + "), comuníquese directamente al centro de atención a clientes del proveedor o al soporte oficial de GestoPago al 800-GESTOPAGO.";
+            }
+        } else if (prod != null) {
+            return "Para cualquier duda, aclaración o reclamo sobre su servicio " + prod + ", comuníquese directamente al centro de atención a clientes del proveedor o al soporte oficial de GestoPago al 800-GESTOPAGO.";
+        } else if (serv != null) {
+            return "Para cualquier duda, aclaración o reclamo sobre su servicio " + serv + ", comuníquese directamente al centro de atención a clientes del proveedor o al soporte oficial de GestoPago al 800-GESTOPAGO.";
+        } else {
+            return "Para cualquier duda, aclaración o reclamo sobre su servicio contratado, comuníquese directamente al centro de atención a clientes del proveedor o al soporte oficial de GestoPago al 800-GESTOPAGO.";
+        }
     }
 
     private List<com.proyecto.servicios.model.dto.producto.ProductoDto> parsearProductos(String xml) {
