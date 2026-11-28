@@ -21,7 +21,7 @@ public class ClienteActualizacionRequest {
     @NotNull(message = "El ID del cliente es obligatorio para realizar la actualización")
     private Integer id;
 
-    @Pattern(regexp = "^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,50}$", message = "El nombre debe contener solo letras y tener entre 3 y 50 caracteres (mínimo 3 letras)")
+    @Pattern(regexp = "^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,62}$", message = "El nombre debe contener solo letras y tener entre 3 y 62 caracteres (mínimo 3 letras)")
     private String nombre;
 
     @Pattern(regexp = "^$|^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,50}$", message = "El segundo nombre debe contener solo letras y al menos 3 caracteres si se proporciona")

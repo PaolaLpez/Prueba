@@ -19,8 +19,8 @@ import java.time.LocalDate;
 public class ClienteRegistroRequest {
 
     @NotBlank(message = "El nombre es obligatorio y no puede estar vacío")
-    @Size(min = 3, max = 50, message = "El nombre debe tener entre 3 y 50 caracteres (mínimo 3 letras)")
-    @Pattern(regexp = "^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,50}$", message = "El nombre debe contener solo letras y al menos 3 caracteres")
+    @Size(min = 3, max = 62, message = "El nombre debe tener entre 3 y 62 caracteres (mínimo 3 letras)")
+    @Pattern(regexp = "^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,62}$", message = "El nombre debe contener solo letras y entre 3 y 62 caracteres")
     private String nombre;
 
     @Pattern(regexp = "^$|^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\\s]{3,50}$", message = "El segundo nombre debe contener solo letras y al menos 3 caracteres si se proporciona")
